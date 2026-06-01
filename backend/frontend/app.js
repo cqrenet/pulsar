@@ -138,7 +138,6 @@ function pulsarApp() {
         this.authConfig = { auth_enabled: false, _error: 'network' };
       }
 
-      try {
       if (!this.authConfig?.auth_enabled) {
         this.authBtnText = 'Auth: OFF';
         console.warn('PULSAR auth is disabled. Set AUTH_ENABLED=true in .env to enable login.');
