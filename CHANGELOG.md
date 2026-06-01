@@ -2,6 +2,14 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.0.2] — 2026-06-01
+
+### Added
+
+- Added PULSAR logo (`docs/pulsar-logo.svg`) with responsive dark/light colour schemes.
+- Replaced topbar emoji icon with inline SVG logo in the web UI.
+- Updated README header to display the logo image.
+
 ## [1.0.1] — 2026-06-01
 
 ### Fixed
