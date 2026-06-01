@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Operations Center</title>
+  <title>PULSAR</title>
   <link rel="stylesheet" href="/style.css?v=15" />
   <script src="/app.js?v=1"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.12/dist/cdn.min.js" integrity="sha384-pb6hrQvo4s23cEUFtj0CZkzGE3jyK3pj26RIupXXxhSrrcUA/Cn0lZgcCrGH0t6L" crossorigin="anonymous"></script>
   <script src="https://alcdn.msauth.net/browser/2.37.0/js/msal-browser.min.js" integrity="sha384-DUSOaqAzlZRiZxkDi8hL7hXJDZ+X39ZOAYV9ZDx44gUv9pozmcunJH02tjSFLPnW" crossorigin="anonymous"></script>
 </head>
 <body>
-  <div class="page" x-data="aocApp()" x-init="initApp()">
+  <div class="page" x-data="pulsarApp()" x-init="initApp()">
     <nav class="topbar">
       <div class="topbar__brand">
         <span class="topbar__logo">🔍</span>
-        <span class="topbar__name">AOC</span>
+        <span class="topbar__name">PULSAR</span>
         <span class="version-badge" x-text="appVersion"></span>
       </div>
       <div class="topbar__links">
@@ -44,7 +44,7 @@
 
     <header class="hero">
       <div>
-        <p class="eyebrow">Admin Operations Center</p>
+        <p class="eyebrow">Platform for Unified Log Search, Alerting & Review</p>
         <h1>Audit Log Explorer</h1>
         <p class="lede">Search and review Microsoft audit events from Entra, Intune, Exchange, SharePoint, and Teams.</p>
       </div>
@@ -321,51 +321,6 @@
       </form>
     </section>
 
-    <section class="panel" x-show="aiFeaturesEnabled">
-      <div class="panel-header panel-header--collapsible" @click="togglePanel('ask')">
-        <h3>Ask a question</h3>
-        <span class="panel-toggle" :class="panelState.ask ? 'panel-toggle--open' : ''">▸</span>
-      </div>
-      <form class="ask-form" @submit.prevent="askQuestion()" x-show="panelState.ask">
-        <div class="ask-row">
-          <input
-            type="text"
-            placeholder="What happened to device ABC123 in the last 3 days?"
-            x-model="askQuestionText"
-            class="ask-input"
-          />
-          <button type="submit" :disabled="askLoading" x-text="askLoading ? 'Thinking…' : 'Ask'">Ask</button>
-        </div>
-        <div x-show="hasActiveFilters()" class="ask-filter-hint">
-          <small>Respecting active filters: <span x-text="activeFilterSummary()"></span></small>
-        </div>
-      </form>
-      <template x-if="askAnswer">
-        <div class="ask-result">
-          <div x-show="askLlmError" class="ask-error" x-text="askLlmError"></div>
-          <div class="ask-answer" x-html="askAnswerHtml"></div>
-          <template x-if="askEvents.length">
-            <div class="ask-events">
-              <h4>Referenced events</h4>
-              <template x-for="(evt, idx) in askEvents" :key="evt.id || idx">
-                <article class="event event--compact">
-                  <div class="event__meta">
-                    <span class="pill pill--clickable" x-text="evt.display_category || evt.service || '—'" @click="filterByService(evt.service || evt.display_category)" title="Filter by this service"></span>
-                    <span class="pill pill--clickable" :class="['success','succeeded','ok','passed','true'].includes((evt.result || '').toLowerCase()) ? 'pill--ok' : 'pill--warn'" x-text="evt.result || '—'" @click="filterByResult(evt.result)" title="Filter by this result"></span>
-                  </div>
-                  <h3 x-text="evt.operation || '—'"></h3>
-                  <p class="event__detail" x-show="evt.display_summary"><strong>Summary:</strong> <span x-text="evt.display_summary"></span></p>
-                  <p class="event__detail"><strong>Actor:</strong> <span x-text="evt.actor_display || '—'"></span></p>
-                  <p class="event__detail"><strong>Target:</strong> <span x-text="Array.isArray(evt.target_displays) ? evt.target_displays.join(', ') : '—'"></span></p>
-                  <p class="event__detail"><strong>When:</strong> <span x-text="evt.timestamp ? new Date(evt.timestamp).toLocaleString() : '—'"></span></p>
-                </article>
-              </template>
-            </div>
-          </template>
-          <button type="button" class="ghost" @click="clearAsk()">Clear</button>
-        </div>
-      </template>
-    </section>
 
     <section class="panel">
       <div class="panel-header panel-header--collapsible" @click="togglePanel('events')">
@@ -425,13 +380,8 @@
           <h3 id="modalTitle">Raw Event</h3>
           <div class="modal__actions">
             <button type="button" class="ghost" @click="copyRawEvent()">Copy</button>
-            <button type="button" class="ghost" x-show="aiFeaturesEnabled" :disabled="modalExplainLoading" @click="explainEvent()" x-text="modalExplainLoading ? 'Explaining…' : 'Explain'">Explain</button>
             <button type="button" id="closeModal" class="ghost" @click="modalOpen = false">Close</button>
           </div>
-        </div>
-        <div x-show="modalExplanation || modalExplainError" class="modal__explanation">
-          <div x-show="modalExplainError" class="ask-error" x-text="modalExplainError"></div>
-          <div x-show="modalExplanation" class="ask-answer" x-html="_mdToHtml(modalExplanation)"></div>
         </div>
         <pre id="modalBody" x-text="modalBody"></pre>
       </div>
@@ -439,7 +389,7 @@
 
     <footer class="footer">
       <div class="footer__left">
-        <span class="footer__brand">Admin Operations Center</span>
+        <span class="footer__brand">PULSAR</span>
         <span class="footer__version" x-text="'v' + appVersion"></span>
       </div>
       <div class="footer__center">

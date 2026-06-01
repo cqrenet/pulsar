@@ -1,4 +1,4 @@
-"""Pluggable notification channels for admin-ops alerts.
+"""Pluggable notification channels for PULSAR alerts.
 
 Supported channels:
 - webhook: POST JSON to any URL (Slack, Teams, generic)
@@ -70,7 +70,7 @@ def _build_slack_payload(rule_name: str, severity: str, message: str, event: dic
                     {"title": "Target", "value": targets, "short": True},
                     {"title": "Time", "value": ts, "short": False},
                 ],
-                "footer": "AOC Admin Operations Center",
+                "footer": "PULSAR",
             }
         ],
     }

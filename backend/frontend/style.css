@@ -533,16 +533,6 @@ input {
   font-size: 13px;
 }
 
-.modal__explanation {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 10px;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
 .modal pre {
   background: rgba(255, 255, 255, 0.02);
   color: var(--text);
@@ -554,97 +544,6 @@ input {
   font-size: 12px;
   line-height: 1.5;
   margin: 0;
-}
-
-/* Ask / Natural Language Query */
-.ask-form {
-  margin-top: 10px;
-}
-
-.ask-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.ask-input {
-  flex: 1;
-  padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
-  color: var(--text);
-  font-size: 15px;
-}
-
-.ask-result {
-  margin-top: 16px;
-}
-
-.ask-answer {
-  background: rgba(125, 211, 252, 0.06);
-  border: 1px solid rgba(125, 211, 252, 0.2);
-  border-radius: 12px;
-  padding: 16px;
-  line-height: 1.55;
-  margin-bottom: 14px;
-}
-
-.ask-answer code {
-  background: rgba(255,255,255,0.06);
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.ask-error {
-  background: rgba(249, 115, 22, 0.1);
-  border: 1px solid rgba(249, 115, 22, 0.3);
-  border-radius: 8px;
-  padding: 10px 14px;
-  color: #fdba74;
-  font-size: 14px;
-  margin-bottom: 10px;
-}
-
-.ask-filter-hint {
-  margin-top: 6px;
-  color: var(--muted);
-}
-
-.version-badge {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(125, 211, 252, 0.15);
-  border: 1px solid rgba(125, 211, 252, 0.3);
-  color: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  vertical-align: middle;
-}
-
-.ask-events {
-  margin-bottom: 14px;
-}
-
-.ask-events h4 {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.event--compact {
-  padding: 12px;
-  margin-bottom: 10px;
-}
-
-.event--compact h3 {
-  font-size: 15px;
 }
 
 .source-health {

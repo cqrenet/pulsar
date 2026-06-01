@@ -1,4 +1,4 @@
-"""Rule-based alerting for admin operations.
+"""Rule-based alerting for PULSAR.
 
 Rules are evaluated during event ingestion. Triggered alerts are stored in MongoDB
 and optionally forwarded to a notification channel (webhook, Slack, Teams).
@@ -137,7 +137,7 @@ def _create_alert(rule: dict, event: dict):
 
 
 def seed_default_rules():
-    """Upsert pre-built admin-ops rule templates. Safe for concurrent startup."""
+    """Upsert pre-built PULSAR rule templates. Safe for concurrent startup."""
     # One-time cleanup: remove duplicates by name, keep the oldest (_id ascending)
     pipeline = [
         {"$sort": {"_id": ASCENDING}},
@@ -281,4 +281,4 @@ def seed_default_rules():
         except Exception as exc:
             logger.warning("Failed to seed rule", rule=rule["name"], error=str(exc))
     if inserted:
-        logger.info("Default admin-ops rules seeded", inserted=inserted, total=len(defaults))
+        logger.info("Default PULSAR rules seeded", inserted=inserted, total=len(defaults))

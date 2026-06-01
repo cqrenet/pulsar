@@ -8,7 +8,7 @@ audit_collection = db["pulsar_audit"]
 
 
 def log_action(action: str, resource: str, details: dict | None = None, user: str | None = None):
-    """Log an action in the AOC audit trail."""
+    """Log an action in the PULSAR audit trail."""
     doc = {
         "timestamp": datetime.now(UTC).isoformat(),
         "action": action,

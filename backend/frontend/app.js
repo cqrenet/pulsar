@@ -1,4 +1,4 @@
-function aocApp() {
+function pulsarApp() {
   return {
     events: [],
     sourceHealth: [],
@@ -10,9 +10,7 @@ function aocApp() {
     modalOpen: false,
     modalBody: '',
     modalEventId: '',
-    modalExplanation: '',
-    modalExplainLoading: false,
-    modalExplainError: '',
+
     authBtnText: 'Login',
     authConfig: null,
     msalInstance: null,
@@ -22,13 +20,12 @@ function aocApp() {
     filters: {
       actor: '', selectedServices: [], search: '', operation: '', result: '', start: '', end: '', limit: 24, includeTags: '', excludeTags: '',
     },
-    panelState: { sourceHealth: true, alerts: true, rules: true, filters: true, ask: true, events: true },
+    panelState: { sourceHealth: true, alerts: true, rules: true, filters: true, events: true },
     options: { actors: [], services: [], operations: [], results: [] },
     savedSearches: [],
     appVersion: '',
     repoUrl: 'https://github.com/cqrenet/pulsar',
     docsUrl: 'https://github.com/cqrenet/pulsar/blob/main/README.md',
-    aiFeaturesEnabled: true,
     alertSummary: { total_open: 0, high: 0, medium: 0, low: 0 },
     alerts: [],
     alertsTotal: 0,
@@ -38,13 +35,7 @@ function aocApp() {
     ruleModalOpen: false,
     ruleEditId: null,
     ruleEdit: { name: '', enabled: true, severity: 'medium', message: '', conditions: [] },
-    askQuestionText: '',
-    askLoading: false,
-    askAnswer: '',
-    askAnswerHtml: '',
-    askEvents: [],
-    askLlmUsed: false,
-    askLlmError: '',
+
 
     async initApp() {
       await this.loadVersion();
@@ -64,7 +55,7 @@ function aocApp() {
 
     loadSavedFilters() {
       try {
-        const saved = localStorage.getItem('aoc_filters');
+        const saved = localStorage.getItem('pulsar_filters');
         if (!saved) return;
         const parsed = JSON.parse(saved);
         const fields = ['actor', 'selectedServices', 'search', 'operation', 'result', 'start', 'end', 'limit', 'includeTags', 'excludeTags'];
@@ -76,13 +67,13 @@ function aocApp() {
 
     saveFilters() {
       try {
-        localStorage.setItem('aoc_filters', JSON.stringify(this.filters));
+        localStorage.setItem('pulsar_filters', JSON.stringify(this.filters));
       } catch {}
     },
 
     loadPanelState() {
       try {
-        const saved = localStorage.getItem('aoc_panels');
+        const saved = localStorage.getItem('pulsar_panels');
         if (saved) {
           const parsed = JSON.parse(saved);
           Object.keys(parsed).forEach((k) => { if (this.panelState[k] !== undefined) this.panelState[k] = parsed[k]; });
@@ -92,7 +83,7 @@ function aocApp() {
 
     savePanelState() {
       try {
-        localStorage.setItem('aoc_panels', JSON.stringify(this.panelState));
+        localStorage.setItem('pulsar_panels', JSON.stringify(this.panelState));
       } catch {}
     },
 
@@ -148,25 +139,9 @@ function aocApp() {
       }
 
       try {
-        const featRes = await fetch('/api/config/features');
-        if (featRes.ok) {
-          const featBody = await featRes.json();
-          this.aiFeaturesEnabled = featBody.ai_features_enabled !== false;
-          if (featBody.default_page_size) {
-            this.filters.limit = featBody.default_page_size;
-          } else {
-            this.filters.limit = 24;
-          }
-        } else {
-          this.aiFeaturesEnabled = true;
-        }
-      } catch {
-        this.aiFeaturesEnabled = true;
-      }
-
       if (!this.authConfig?.auth_enabled) {
         this.authBtnText = 'Auth: OFF';
-        console.warn('AOC auth is disabled. Set AUTH_ENABLED=true in .env to enable login.');
+        console.warn('PULSAR auth is disabled. Set AUTH_ENABLED=true in .env to enable login.');
         return;
       }
 
@@ -175,7 +150,7 @@ function aocApp() {
       if (!clientId || !tenantId) {
         this.authBtnText = 'Auth: misconfigured';
         this.statusText = 'Auth is enabled but client_id or tenant_id is missing. Check .env configuration.';
-        console.error('AOC auth misconfigured: missing client_id or tenant_id in /api/config/auth');
+        console.error('PULSAR auth misconfigured: missing client_id or tenant_id in /api/config/auth');
         return;
       }
 
@@ -331,7 +306,7 @@ function aocApp() {
         this.options.operations = (opts.operations || []).slice(0, 200);
         this.options.results = (opts.results || []).slice(0, 200);
 
-        const saved = localStorage.getItem('aoc_filters');
+        const saved = localStorage.getItem('pulsar_filters');
         if (!saved && this.options.services.length) {
           // Default: show all services (privacy controls handle exclusions server-side)
           this.filters.selectedServices = [...this.options.services];
@@ -559,71 +534,6 @@ function aocApp() {
       } catch {}
     },
 
-    async askQuestion() {
-      const q = this.askQuestionText.trim();
-      if (!q) return;
-      this.askLoading = true;
-      this.askAnswer = '';
-      this.askAnswerHtml = '';
-      this.askEvents = [];
-      this.askLlmError = '';
-
-      const payload = { question: q };
-      if (this.filters.selectedServices && this.filters.selectedServices.length) {
-        payload.services = this.filters.selectedServices;
-      }
-      if (this.filters.actor) payload.actor = this.filters.actor;
-      if (this.filters.operation) payload.operation = this.filters.operation;
-      if (this.filters.result) payload.result = this.filters.result;
-      if (this.filters.start) payload.start = new Date(this.filters.start).toISOString();
-      if (this.filters.end) payload.end = new Date(this.filters.end).toISOString();
-      if (this.filters.includeTags) {
-        payload.include_tags = this.filters.includeTags.split(/[,;]+/).map(t => t.trim()).filter(Boolean);
-      }
-      if (this.filters.excludeTags) {
-        payload.exclude_tags = this.filters.excludeTags.split(/[,;]+/).map(t => t.trim()).filter(Boolean);
-      }
-
-      try {
-        const res = await fetch('/api/ask', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...this.authHeader() },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const body = await res.json();
-        this.askAnswer = body.answer;
-        this.askAnswerHtml = this._mdToHtml(body.answer);
-        this.askEvents = body.events || [];
-        this.askLlmUsed = body.llm_used;
-        this.askLlmError = body.llm_error || '';
-      } catch (err) {
-        this.askAnswer = 'Sorry, something went wrong: ' + (err.message || 'Unknown error');
-        this.askAnswerHtml = this.askAnswer;
-      } finally {
-        this.askLoading = false;
-      }
-    },
-
-    clearAsk() {
-      this.askQuestionText = '';
-      this.askAnswer = '';
-      this.askAnswerHtml = '';
-      this.askEvents = [];
-      this.askLlmUsed = false;
-      this.askLlmError = '';
-    },
-
-    _mdToHtml(text) {
-      // Very lightweight markdown-to-HTML for LLM answers
-      return text
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.+?)\*/g, '<em>$1</em>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/Event #(\d+)/g, '<strong>Event #$1</strong>')
-        .replace(/\n/g, '<br>');
-    },
 
     hasActiveFilters() {
       return this.filters.actor || this.filters.operation || this.filters.result ||
@@ -720,8 +630,6 @@ function aocApp() {
         this.modalBody = `Error serializing event:\n${err.message}\n\nEvent ID: ${e.id || 'N/A'}`;
       }
       this.modalEventId = e.id || '';
-      this.modalExplanation = '';
-      this.modalExplainError = '';
       this.modalOpen = true;
     },
 
@@ -736,26 +644,6 @@ function aocApp() {
       }
     },
 
-    async explainEvent() {
-      if (!this.modalEventId) return;
-      this.modalExplainLoading = true;
-      this.modalExplanation = '';
-      this.modalExplainError = '';
-      try {
-        const res = await fetch(`/api/events/${this.modalEventId}/explain`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...this.authHeader() },
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const body = await res.json();
-        this.modalExplanation = body.explanation;
-        this.modalExplainError = body.llm_error || '';
-      } catch (err) {
-        this.modalExplainError = err.message || 'Failed to explain event.';
-      } finally {
-        this.modalExplainLoading = false;
-      }
-    },
 
     async addTag(e, tag) {
       if (!tag.trim()) return;
@@ -790,7 +678,7 @@ function aocApp() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `aoc-events-${new Date().toISOString().slice(0,10)}.json`;
+      a.download = `pulsar-events-${new Date().toISOString().slice(0,10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
     },
@@ -812,7 +700,7 @@ function aocApp() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `aoc-events-${new Date().toISOString().slice(0,10)}.csv`;
+      a.download = `pulsar-events-${new Date().toISOString().slice(0,10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     },

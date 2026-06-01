@@ -38,12 +38,8 @@ def _get_path_category(path: str) -> str:
     """Bucket paths into rate-limit categories."""
     if path.startswith("/api/fetch"):
         return "fetch"
-    if path.startswith("/api/ask"):
-        return "ask"
     if path.startswith("/api/events/bulk-tags"):
         return "write"
-    if "/explain" in path:
-        return "explain"
     return "default"
 
 
@@ -51,10 +47,6 @@ def _limit_for_category(category: str) -> tuple[int, int]:
     """Return (max_requests, window_seconds) for a category."""
     if category == "fetch":
         return (10, 3600)  # 10 per hour
-    if category == "ask":
-        return (30, 60)  # 30 per minute
-    if category == "explain":
-        return (20, 60)  # 20 per minute — LLM + Graph API calls
     if category == "write":
         return (20, 60)  # 20 per minute
     return (RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SECONDS)

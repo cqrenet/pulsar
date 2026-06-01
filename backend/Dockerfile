@@ -5,7 +5,7 @@ ARG VERSION=unknown
 ENV VERSION=${VERSION}
 
 # Security: run as non-root
-RUN groupadd -r aoc && useradd -r -g aoc aoc
+RUN groupadd -r pulsar && useradd -r -g pulsar pulsar
 
 WORKDIR /app
 
@@ -17,9 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create directories for potential volume mounts and fix permissions
-RUN mkdir -p /app/data && chown -R aoc:aoc /app
+RUN mkdir -p /app/data && chown -R pulsar:pulsar /app
 
-USER aoc
+USER pulsar
 
 # Production: use gunicorn with uvicorn workers
 # Workers = 2-4 x $NUM_CORES; keep it conservative for containerised workloads

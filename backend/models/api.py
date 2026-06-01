@@ -80,34 +80,3 @@ class AlertRuleResponse(BaseModel):
     message: str = Field(..., max_length=1000)
 
 
-class AskRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=2000)
-    services: list[str] | None = None
-    actor: str | None = None
-    operation: str | None = None
-    result: str | None = None
-    start: str | None = None
-    end: str | None = None
-    include_tags: list[str] | None = None
-    exclude_tags: list[str] | None = None
-    async_mode: bool = False  # enqueue async job instead of waiting
-
-
-class AskEventRef(BaseModel):
-    id: str | None = None
-    timestamp: str | None = None
-    operation: str | None = None
-    actor_display: str | None = None
-    target_displays: list[str] | None = None
-    display_summary: str | None = None
-    service: str | None = None
-    result: str | None = None
-
-
-class AskResponse(BaseModel):
-    answer: str
-    events: list[AskEventRef]
-    query_info: dict
-    llm_used: bool
-    llm_error: str | None = None
-    job_id: str | None = None

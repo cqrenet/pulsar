@@ -2,6 +2,14 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.0.1] — 2026-06-01
+
+### Fixed
+
+- Removed orphaned AI feature remnants (Explain, Ask, LLM models, async jobs, and compiled bytecode) that were stripped for public release but left broken frontend code calling non-existent endpoints.
+- Fixed misleading LLM comment in `.env.example` for `SIEM_ALLOWED_DOMAINS`.
+- Rebranded all remaining AOC / "Admin Operations Center" references to PULSAR across frontend, backend, Dockerfile, nginx config, and documentation.
+
 ## [1.0.0] — 2025-06-01
 
 Initial public release.
