@@ -2,6 +2,21 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.0.4] — 2026-06-01
+
+### Changed
+
+- Complete frontend redesign:
+  - Tab-based navigation for Events, Alerts, and Rules.
+  - Events displayed in a sortable table with expandable detail rows.
+  - Inline tags, comments, and raw JSON view inside expanded rows.
+  - Redesigned filter bar with advanced filters toggle, service multi-select dropdown, and export menu.
+  - Relative timestamps (`5m ago`, `2h ago`) with full timestamp on hover.
+  - Colour-coded service badges and result indicators.
+  - Updated alert and rule list layouts with cleaner actions.
+  - New modal design with backdrop click-to-close.
+  - Sticky header, responsive breakpoints, and refined dark theme.
+
 ## [1.0.3] — 2026-06-01
 
 ### Fixed

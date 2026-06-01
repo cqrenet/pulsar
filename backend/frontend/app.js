@@ -11,6 +11,13 @@ function pulsarApp() {
     modalBody: '',
     modalEventId: '',
 
+    // UI state
+    activeTab: 'events',
+    expandedEventId: null,
+    showAdvancedFilters: false,
+    showServiceDropdown: false,
+    showExportMenu: false,
+
     authBtnText: 'Login',
     authConfig: null,
     msalInstance: null,
@@ -18,7 +25,7 @@ function pulsarApp() {
     accessToken: null,
     authScopes: [],
     filters: {
-      actor: '', selectedServices: [], search: '', operation: '', result: '', start: '', end: '', limit: 24, includeTags: '', excludeTags: '',
+      actor: '', selectedServices: [], search: '', operation: '', result: '', start: '', end: '', limit: 50, includeTags: '', excludeTags: '',
     },
     panelState: { sourceHealth: true, alerts: true, rules: true, filters: true, events: true },
     options: { actors: [], services: [], operations: [], results: [] },
@@ -680,6 +687,60 @@ function pulsarApp() {
       a.download = `pulsar-events-${new Date().toISOString().slice(0,10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
+    },
+
+    // ── Row expansion ──────────────────────────────────────────
+    toggleRow(id) {
+      this.expandedEventId = this.expandedEventId === id ? null : id;
+    },
+
+    // ── Formatting helpers ──────────────────────────────────────
+    relativeTime(ts) {
+      if (!ts) return '—';
+      const diff = Date.now() - new Date(ts).getTime();
+      const mins = Math.floor(diff / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days < 7) return `${days}d ago`;
+      return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    },
+
+    formatFullTime(ts) {
+      if (!ts) return '—';
+      return new Date(ts).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' });
+    },
+
+    isSuccess(result) {
+      return ['success', 'succeeded', 'ok', 'passed', 'true', '1'].includes((result || '').toLowerCase());
+    },
+
+    isFailure(result) {
+      return ['failure', 'failed', 'error', 'fail', 'false', '0'].includes((result || '').toLowerCase());
+    },
+
+    serviceColor(service) {
+      const map = {
+        Directory: '#58a6ff', UserManagement: '#58a6ff', GroupManagement: '#58a6ff',
+        RoleManagement: '#db6d28', Policy: '#e09b53', Device: '#e09b53',
+        Intune: '#e09b53', DeviceManagement: '#e09b53',
+        Exchange: '#a371f7', ApplicationManagement: '#a371f7',
+        SharePoint: '#3fb950',
+        Teams: '#1f6feb', MicrosoftTeams: '#1f6feb',
+      };
+      return map[service] || '#656d76';
+    },
+
+    async copyEventId(evt) {
+      if (!evt.id) return;
+      try {
+        await navigator.clipboard.writeText(evt.id);
+        const prev = this.statusText;
+        this.statusText = 'Event ID copied.';
+        setTimeout(() => { if (this.statusText === 'Event ID copied.') this.statusText = prev; }, 1500);
+      } catch {}
     },
 
     exportCSV() {
