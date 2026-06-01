@@ -18,6 +18,14 @@ function pulsarApp() {
     showServiceDropdown: false,
     showExportMenu: false,
 
+    // Entity timeline
+    timelineMode: false,
+    timelineEntity: '',
+    timelineEvents: [],
+    timelineLoading: false,
+    timelineNextCursor: null,
+    timelineExpandedId: null,
+
     authBtnText: 'Login',
     authConfig: null,
     msalInstance: null,
@@ -731,6 +739,79 @@ function pulsarApp() {
         Teams: '#1f6feb', MicrosoftTeams: '#1f6feb',
       };
       return map[service] || '#656d76';
+    },
+
+    // ── Entity timeline ────────────────────────────────────────
+    async openTimeline(entity) {
+      if (!entity || entity === '—' || entity === 'Unknown actor') return;
+      this.timelineEntity = entity;
+      this.timelineMode = true;
+      this.timelineEvents = [];
+      this.timelineNextCursor = null;
+      this.timelineExpandedId = null;
+      await this.loadTimelineEvents();
+    },
+
+    closeTimeline() {
+      this.timelineMode = false;
+      this.timelineEntity = '';
+      this.timelineEvents = [];
+      this.timelineExpandedId = null;
+    },
+
+    async loadTimelineEvents(cursor) {
+      if (this.authConfig?.auth_enabled && !this.accessToken) return;
+      this.timelineLoading = true;
+      const params = new URLSearchParams();
+      params.append('search', this.timelineEntity);
+      params.append('page_size', '100');
+      if (cursor) params.append('cursor', cursor);
+      try {
+        const res = await fetch(`/api/events?${params.toString()}`, {
+          headers: { Accept: 'application/json', ...this.authHeader() },
+        });
+        if (!res.ok) throw new Error(`${res.status}`);
+        const body = await res.json();
+        this.timelineEvents = cursor
+          ? [...this.timelineEvents, ...(body.items || [])]
+          : (body.items || []);
+        this.timelineNextCursor = body.next_cursor || null;
+      } catch {}
+      finally { this.timelineLoading = false; }
+    },
+
+    timelineGrouped() {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+      const groups = [];
+      let current = null;
+      for (const evt of this.timelineEvents) {
+        if (!evt.timestamp) continue;
+        const d = new Date(evt.timestamp); d.setHours(0, 0, 0, 0);
+        const key = d.toISOString();
+        let label;
+        if (d.getTime() === today.getTime())     label = 'Today';
+        else if (d.getTime() === yesterday.getTime()) label = 'Yesterday';
+        else label = d.toLocaleDateString(undefined, {
+          weekday: 'long', month: 'long', day: 'numeric',
+          ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}),
+        });
+        if (!current || current.key !== key) {
+          current = { key, label, events: [] };
+          groups.push(current);
+        }
+        current.events.push(evt);
+      }
+      return groups;
+    },
+
+    formatEventTime(ts) {
+      if (!ts) return '—';
+      return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    },
+
+    toggleTimelineRow(id) {
+      this.timelineExpandedId = this.timelineExpandedId === id ? null : id;
     },
 
     async copyEventId(evt) {

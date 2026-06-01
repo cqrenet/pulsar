@@ -944,6 +944,191 @@ body {
 .app-footer__links a { color: var(--text-3); text-decoration: none; }
 .app-footer__links a:hover { color: var(--text-2); }
 
+/* ── Actor cell with timeline button ────────────────────────────── */
+.actor-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actor-timeline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, border-color 0.12s, color 0.12s;
+}
+.actor-cell:hover .actor-timeline-btn,
+.actor-timeline-btn:focus {
+  opacity: 1;
+}
+.actor-timeline-btn:hover {
+  color: var(--accent);
+  border-color: rgba(88,166,255,0.4);
+}
+
+/* ── Entity timeline ─────────────────────────────────────────────── */
+.timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0 12px;
+  border-bottom: 1px solid var(--border-sub);
+  flex-wrap: wrap;
+}
+
+.timeline-header__entity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.timeline-header__entity svg { color: var(--accent); }
+
+.timeline-header__count {
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-3);
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.timeline-header__spacer { flex: 1; }
+
+.timeline-loading {
+  font-size: 12px;
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* Timeline body */
+.timeline {
+  padding: 8px 0 16px;
+}
+
+.timeline-group {
+  margin-bottom: 8px;
+}
+
+.timeline-group__label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  padding: 16px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.timeline-group__label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-sub);
+}
+
+/* Individual event row */
+.timeline-event {
+  display: grid;
+  grid-template-columns: 72px 10px 1fr auto auto 20px;
+  align-items: center;
+  gap: 0 12px;
+  padding: 9px 12px 9px 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.08s;
+  position: relative;
+}
+.timeline-event:hover { background: var(--surface); }
+.timeline-event.expanded { background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; }
+
+/* Spine line — runs through the dot column */
+.timeline-group .timeline-event:not(:last-of-type)::before {
+  content: '';
+  position: absolute;
+  left: 83px;
+  top: 26px;
+  bottom: -9px;
+  width: 1px;
+  background: var(--border-sub);
+  pointer-events: none;
+}
+
+.timeline-event__time {
+  text-align: right;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.timeline-event__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+.timeline-event__body {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.timeline-event__op {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timeline-event__summary {
+  display: block;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.timeline-event__svc { flex-shrink: 0; }
+
+.timeline-event__result { flex-shrink: 0; }
+
+/* Expanded detail inside timeline */
+.timeline-event__detail {
+  background: var(--surface-2);
+  border: 1px solid var(--border-sub);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding: 14px 16px 14px 106px;
+  margin-bottom: 2px;
+}
+
+.timeline-footer {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .event-detail__grid { grid-template-columns: 1fr; }

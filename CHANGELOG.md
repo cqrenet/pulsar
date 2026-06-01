@@ -2,6 +2,16 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.1.0] — 2026-06-01
+
+### Added
+
+- **Entity timeline view**: click the ↗ button next to any actor name in the events table (or the "Actor timeline →" button in the expanded row) to open a chronological timeline of all events for that entity. Events are grouped by day (Today, Yesterday, etc.) with a visual spine, colour-coded service dots, and expandable detail rows. Supports pagination via "Load more events".
+
+### Fixed
+
+- Added missing hover-reveal styles for the actor timeline button (`.actor-cell`, `.actor-timeline-btn`).
+
 ## [1.0.6] — 2026-06-01
 
 ### Fixed

@@ -79,7 +79,109 @@
   <!-- ─────────────────── Events Tab ─────────────────── -->
   <div class="tab-content" x-show="activeTab === 'events'">
 
-    <!-- Filter bar -->
+    <!-- ── Entity timeline view ── -->
+    <div x-show="timelineMode">
+      <div class="timeline-header">
+        <button class="btn btn--ghost btn--sm" @click="closeTimeline()">← Back to events</button>
+        <div class="timeline-header__entity">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <circle cx="7" cy="4" r="2.5"/>
+            <path d="M1.5 12.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/>
+          </svg>
+          <span x-text="timelineEntity"></span>
+        </div>
+        <span class="timeline-header__count" x-show="timelineEvents.length"
+          x-text="timelineEvents.length + (timelineNextCursor ? '+' : '') + ' event' + (timelineEvents.length === 1 ? '' : 's')"></span>
+        <div class="timeline-header__spacer"></div>
+        <span class="timeline-loading" x-show="timelineLoading">Loading…</span>
+      </div>
+
+      <div class="timeline" x-show="!timelineLoading || timelineEvents.length">
+        <template x-for="group in timelineGrouped()" :key="group.key">
+          <div class="timeline-group">
+            <div class="timeline-group__label" x-text="group.label"></div>
+            <template x-for="(evt, idx) in group.events" :key="evt.id || idx">
+              <div>
+                <div class="timeline-event"
+                  :class="{expanded: timelineExpandedId === (evt.id || idx)}"
+                  @click="toggleTimelineRow(evt.id || idx)"
+                  tabindex="0"
+                  @keydown.enter="toggleTimelineRow(evt.id || idx)">
+                  <span class="timeline-event__time ts" x-text="formatEventTime(evt.timestamp)"></span>
+                  <span class="timeline-event__dot" :style="'background:' + serviceColor(evt.service)"></span>
+                  <div class="timeline-event__body">
+                    <span class="timeline-event__op" x-text="evt.operation || '—'"></span>
+                    <span class="timeline-event__summary" x-show="evt.display_summary" x-text="evt.display_summary"></span>
+                  </div>
+                  <span class="svc-badge timeline-event__svc"
+                    :style="'border-left-color:' + serviceColor(evt.service)"
+                    x-text="evt.service || '—'"></span>
+                  <span class="result-badge timeline-event__result"
+                    :class="isSuccess(evt.result) ? 'result-badge--ok' : isFailure(evt.result) ? 'result-badge--err' : 'result-badge--neutral'"
+                    x-text="evt.result || '—'"></span>
+                  <svg class="chevron" :class="{open: timelineExpandedId === (evt.id || idx)}"
+                    width="12" height="12" viewBox="0 0 12 12" fill="none"
+                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 2l4 4-4 4"/>
+                  </svg>
+                </div>
+
+                <!-- Expanded detail -->
+                <div class="timeline-event__detail" x-show="timelineExpandedId === (evt.id || idx)">
+                  <div class="event-detail__grid" style="padding:0">
+                    <div class="detail-group">
+                      <div class="detail-row" x-show="evt.display_summary">
+                        <span class="detail-label">Summary</span>
+                        <span class="detail-value" x-text="evt.display_summary"></span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-label">Target</span>
+                        <span class="detail-value" x-text="displayTargets(evt)"></span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-label">Time</span>
+                        <span class="detail-value ts" x-text="formatFullTime(evt.timestamp)"></span>
+                      </div>
+                    </div>
+                    <div class="detail-group">
+                      <div class="detail-row">
+                        <span class="detail-label">Tags</span>
+                        <div class="tag-group">
+                          <template x-for="tag in (evt.tags || [])" :key="tag">
+                            <span class="tag" x-text="tag"></span>
+                          </template>
+                          <input class="tag-input" type="text" placeholder="+ tag"
+                            @keydown.enter="addTag(evt, $event.target.value); $event.target.value=''" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="event-detail__actions" style="margin-top:10px">
+                    <button class="btn btn--ghost btn--sm" @click.stop="openModal(evt)">View raw JSON</button>
+                    <button class="btn btn--ghost btn--sm" @click.stop="copyEventId(evt)">Copy ID</button>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <div class="table-empty" x-show="!timelineEvents.length && !timelineLoading">
+          <p>No events found for this entity.</p>
+          <small>Try a different name or check the date range.</small>
+        </div>
+      </div>
+
+      <div class="timeline-footer" x-show="timelineNextCursor || timelineLoading">
+        <button class="btn btn--ghost" @click="loadTimelineEvents(timelineNextCursor)" :disabled="timelineLoading">
+          <span x-show="!timelineLoading">Load more events</span>
+          <span x-show="timelineLoading">Loading…</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Filter bar (hidden in timeline mode) -->
+    <div x-show="!timelineMode">
     <div class="filter-bar">
       <div class="filter-bar__main">
 
@@ -215,7 +317,11 @@
                   <span class="op-summary" x-show="evt.display_summary" x-text="evt.display_summary"></span>
                 </td>
                 <td class="col-actor">
-                  <span class="actor-text" :title="displayActor(evt)" x-text="displayActor(evt)"></span>
+                  <span class="actor-cell">
+                    <span class="actor-text" x-text="displayActor(evt)"></span>
+                    <button class="actor-timeline-btn" :title="'Timeline for ' + displayActor(evt)"
+                      @click.stop="openTimeline(displayActor(evt))">↗</button>
+                  </span>
                 </td>
                 <td class="col-result">
                   <span class="result-badge"
@@ -295,6 +401,9 @@
                     <div class="event-detail__actions">
                       <button class="btn btn--ghost btn--sm" @click.stop="openModal(evt)">View raw JSON</button>
                       <button class="btn btn--ghost btn--sm" @click.stop="copyEventId(evt)">Copy ID</button>
+                      <button class="btn btn--ghost btn--sm" @click.stop="openTimeline(displayActor(evt))">
+                        Actor timeline →
+                      </button>
                     </div>
                   </div>
                 </td>
@@ -317,6 +426,7 @@
       <span x-text="'Page ' + (cursorStack.length + 1)"></span>
       <button class="btn btn--ghost btn--sm" :disabled="!nextCursor" @click="goNext()">Next →</button>
     </div>
+    </div> <!-- end x-show="!timelineMode" -->
   </div>
 
   <!-- ─────────────────── Alerts Tab ─────────────────── -->
