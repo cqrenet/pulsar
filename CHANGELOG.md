@@ -2,6 +2,12 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.0.3] — 2026-06-01
+
+### Fixed
+
+- Fixed JavaScript syntax error in `app.js` caused by a dangling `try` block left after AI feature cleanup, which prevented the frontend from loading.
+
 ## [1.0.2] — 2026-06-01
 
 ### Added
