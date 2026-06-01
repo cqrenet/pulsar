@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from fastapi.testclient import TestClient
+
 
 def test_config_features(client):
     response = client.get("/api/config/features")
@@ -21,8 +23,12 @@ def test_mcp_messages_no_session(client):
     assert response.status_code in (400, 404)
 
 
-def test_mcp_sse_auth_required_when_enabled(client, monkeypatch):
+def test_mcp_sse_auth_required_when_enabled(monkeypatch):
     monkeypatch.setattr("routes.mcp.AUTH_ENABLED", True)
+    from routes.mcp import build_mcp_app
+
+    mcp_app = build_mcp_app()
+    client = TestClient(mcp_app)
     response = client.get("/mcp/sse")
     assert response.status_code == 401
 

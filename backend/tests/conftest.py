@@ -75,6 +75,18 @@ def client(mock_events_collection, mock_watermarks_collection, monkeypatch):
     monkeypatch.setattr("redis_client.get_redis", fake_get_redis)
     monkeypatch.setattr("rate_limiter.get_redis", fake_get_redis)
 
+    # Disable MCP SSE transport security validation in tests (DNS rebinding
+    # protection rejects Starlette TestClient's default Host header)
+    try:
+        from mcp.server.transport_security import TransportSecurityMiddleware
+
+        async def _noop_validate(self, request, is_post=False):
+            return None
+
+        monkeypatch.setattr(TransportSecurityMiddleware, "validate_request", _noop_validate)
+    except ImportError:
+        pass
+
     from main import app
 
     return TestClient(app)
