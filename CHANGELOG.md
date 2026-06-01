@@ -2,6 +2,12 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.1.1] — 2026-06-01
+
+### Fixed
+
+- Fixed event table DOM structure: `<template x-for>` inside `<tbody>` broke table layout (sticky header overlap) and prevented row expansion. Moved `<template>` to be a direct child of `<table>` with each event wrapped in its own `<tbody class="event-group">`.
+
 ## [1.1.0] — 2026-06-01
 
 ### Added
