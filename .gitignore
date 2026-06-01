@@ -1,0 +1,56 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.*venv*/
+*.egg-info/
+dist/
+build/
+site/
+
+# Test and lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+*.orig
+*.rej
+
+# Logs and temp
+*.log
+*.tmp
+
+# TLS certificates — never commit private keys or certs
+nginx/ssl/*.pem
+nginx/ssl/*.crt
+nginx/ssl/*.key
+nginx/ssl/*.p12
+nginx/ssl/*.pfx
+
+# Docker volumes (if accidentally created as local dirs)
+mongo_data/
+redis_data/
+
+# Internal / session files
+memory/

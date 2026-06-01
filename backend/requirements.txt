@@ -1,0 +1,23 @@
+fastapi
+uvicorn[standard]
+pymongo
+python-dotenv
+requests
+PyYAML
+PyJWT
+python-jose[cryptography]
+cryptography
+pydantic-settings
+structlog
+tenacity
+prometheus-client
+httpx
+gunicorn
+mcp
+redis
+arq
+
+# Optional: Azure Key Vault integration for secrets storage
+# Uncomment if using AZURE_KEY_VAULT_NAME
+# azure-identity
+# azure-keyvault-secrets

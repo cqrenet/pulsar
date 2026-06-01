@@ -1,0 +1,31 @@
+# Human-readable mapping for normalizing audit events.
+# You can edit this file to customize category labels and summary templates.
+
+category_labels:
+  ApplicationManagement: Application
+  UserManagement: User
+  GroupManagement: Group
+  RoleManagement: Role
+  Device: Device
+  Policy: Policy
+  ResourceManagement: Resource
+
+summary_templates:
+  # Use {operation}, {category}, {target}, {actor}, {result}, {service} placeholders.
+  default: "{operation} on {target} by {actor}"
+  Device: "{operation} on device {target} by {actor}"
+  ApplicationManagement: "{operation} for app {target} by {actor}"
+
+# Display preferences let you decide which field appears as the primary "actor"
+# label in the UI. Available actor_field values: actor_display, actor_upn,
+# target_display (uses the first target label).
+display:
+  default:
+    actor_field: actor_display
+    actor_label: User
+  ApplicationManagement:
+    actor_field: actor_upn
+    actor_label: User
+  Device:
+    actor_field: target_display
+    actor_label: Device

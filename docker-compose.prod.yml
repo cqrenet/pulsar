@@ -1,0 +1,70 @@
+services:
+  redis:
+    image: valkey/valkey:8-alpine
+    container_name: pulsar-redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    networks:
+      - pulsar-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  mongo:
+    image: mongo:7
+    container_name: pulsar-mongo
+    restart: always
+    # Do NOT expose MongoDB port to the host in production
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - pulsar-internal
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    image: ghcr.io/cqrenet/pulsar:${PULSAR_VERSION:-latest}
+    container_name: pulsar-backend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017/
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - pulsar-internal
+    ports:
+      # Bind to localhost only — always place behind a reverse proxy.
+      # Your reverse proxy (nginx, Traefik, Caddy, Application Gateway, etc.)
+      # should handle TLS termination and forward to this port.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mongo_data:
+  redis_data:
+
+networks:
+  pulsar-internal:
+    internal: true

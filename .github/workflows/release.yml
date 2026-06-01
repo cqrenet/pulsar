@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        run: |
+          docker build ./backend \
+            --build-arg VERSION=${{ github.ref_name }} \
+            --tag ghcr.io/cqrenet/pulsar:${{ github.ref_name }}
+
+      - name: Tag as latest
+        run: docker tag ghcr.io/cqrenet/pulsar:${{ github.ref_name }} ghcr.io/cqrenet/pulsar:latest
+
+      - name: Push version tag
+        run: docker push ghcr.io/cqrenet/pulsar:${{ github.ref_name }}
+
+      - name: Push latest
+        run: docker push ghcr.io/cqrenet/pulsar:latest

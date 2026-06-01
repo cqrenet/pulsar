@@ -1,0 +1,40 @@
+services:
+  redis:
+    image: valkey/valkey:8-alpine
+    container_name: pulsar-redis
+    restart: always
+    # Ports not exposed to host; backend connects via Docker network
+    volumes:
+      - redis_data:/data
+
+  mongo:
+    image: mongo:7
+    container_name: pulsar-mongo
+    restart: always
+    # Ports not exposed to host; backend connects via Docker network
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build: ./backend
+    # For production, use the pre-built image instead:
+    # image: ghcr.io/cqrenet/pulsar:latest
+    container_name: pulsar-backend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:${MONGO_PORT}/
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - mongo
+      - redis
+    ports:
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  mongo_data:
+  redis_data:

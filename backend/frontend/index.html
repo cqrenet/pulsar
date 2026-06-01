@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Operations Center</title>
+  <link rel="stylesheet" href="/style.css?v=15" />
+  <script src="/app.js?v=1"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.12/dist/cdn.min.js" integrity="sha384-pb6hrQvo4s23cEUFtj0CZkzGE3jyK3pj26RIupXXxhSrrcUA/Cn0lZgcCrGH0t6L" crossorigin="anonymous"></script>
+  <script src="https://alcdn.msauth.net/browser/2.37.0/js/msal-browser.min.js" integrity="sha384-DUSOaqAzlZRiZxkDi8hL7hXJDZ+X39ZOAYV9ZDx44gUv9pozmcunJH02tjSFLPnW" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div class="page" x-data="aocApp()" x-init="initApp()">
+    <nav class="topbar">
+      <div class="topbar__brand">
+        <span class="topbar__logo">🔍</span>
+        <span class="topbar__name">AOC</span>
+        <span class="version-badge" x-text="appVersion"></span>
+      </div>
+      <div class="topbar__links">
+        <a :href="repoUrl" target="_blank" rel="noopener">Repository</a>
+        <a :href="docsUrl" target="_blank" rel="noopener">Docs</a>
+      </div>
+      <div class="topbar__meta">
+        <template x-if="account">
+          <div class="user-chip">
+            <div class="user-avatar" x-text="(account.name || account.username || '?').charAt(0).toUpperCase()"></div>
+            <div class="user-details">
+              <span class="user-name" x-text="account.name || account.username || ''"></span>
+              <span class="user-email" x-text="account.username || ''"></span>
+            </div>
+          </div>
+        </template>
+        <template x-if="!account && authConfig?.auth_enabled">
+          <span class="login-hint">Not signed in</span>
+        </template>
+      </div>
+      <div class="topbar__actions">
+        <button id="fetchBtn" class="ghost btn--compact" aria-label="Fetch latest audit logs" @click="fetchLogs()">Fetch</button>
+        <button id="refreshBtn" class="ghost btn--compact" aria-label="Refresh events" @click="loadEvents(currentCursor)">Refresh</button>
+        <button id="authBtn" class="ghost btn--compact" aria-label="Login" x-text="authBtnText" @click="toggleAuth()"></button>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Admin Operations Center</p>
+        <h1>Audit Log Explorer</h1>
+        <p class="lede">Search and review Microsoft audit events from Entra, Intune, Exchange, SharePoint, and Teams.</p>
+      </div>
+      <div class="alert-summary" x-show="alertSummary.total_open > 0">
+        <div class="alert-badge alert-badge--high" x-show="alertSummary.high > 0" x-text="alertSummary.high"></div>
+        <div class="alert-badge alert-badge--medium" x-show="alertSummary.medium > 0" x-text="alertSummary.medium"></div>
+        <div class="alert-badge alert-badge--low" x-show="alertSummary.low > 0" x-text="alertSummary.low"></div>
+        <span class="alert-label">open alerts</span>
+      </div>
+    </header>
+
+    <section class="panel">
+      <div class="panel-header panel-header--collapsible" @click="togglePanel('sourceHealth')">
+        <h3>Source Health</h3>
+        <span class="panel-toggle" :class="panelState.sourceHealth ? 'panel-toggle--open' : ''">▸</span>
+      </div>
+      <div x-show="panelState.sourceHealth">
+        <template x-for="src in sourceHealth" :key="src.source">
+          <div class="health-card">
+            <strong x-text="src.source"></strong>
+            <span class="pill"
+              :class="src.status === 'healthy' ? 'pill--ok' : (src.status === 'error' ? 'pill--err' : 'pill--warn')"
+              x-text="src.status"></span>
+            <small x-text="src.last_fetch_time ? new Date(src.last_fetch_time).toLocaleString() : (src.last_attempt_time ? new Date(src.last_attempt_time).toLocaleString() : 'Never')"></small>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header panel-header--collapsible" @click="togglePanel('alerts')">
+        <h3>Alerts</h3>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span x-text="`${alertSummary.total_open} open`" class="alert-open-count"></span>
+          <span class="panel-toggle" :class="panelState.alerts ? 'panel-toggle--open' : ''">▸</span>
+        </div>
+      </div>
+      <div x-show="panelState.alerts">
+        <div class="alert-filters">
+        <select x-model="alertsFilter.status" @change="alertsPage = 1; loadAlerts()">
+          <option value="">All statuses</option>
+          <option value="open">Open</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="resolved">Resolved</option>
+          <option value="false_positive">False Positive</option>
+        </select>
+        <select x-model="alertsFilter.severity" @change="alertsPage = 1; loadAlerts()">
+          <option value="">All severities</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+      <div class="alerts-list" x-show="alerts.length > 0">
+        <template x-for="alert in alerts" :key="alert._id || alert.event_id">
+          <div class="alert-card" :class="'alert-card--' + alert.severity">
+            <div class="alert-card__meta">
+              <span class="pill" :class="alert.severity === 'high' ? 'pill--err' : (alert.severity === 'medium' ? 'pill--warn' : '')" x-text="alert.severity"></span>
+              <span class="pill" x-text="alert.status"></span>
+              <small x-text="new Date(alert.timestamp).toLocaleString()"></small>
+            </div>
+            <strong x-text="alert.rule_name"></strong>
+            <p x-text="alert.message"></p>
+            <div class="alert-card__actions">
+              <button type="button" class="ghost btn--compact" @click="updateAlertStatus(alert._id, 'acknowledged')" x-show="alert.status === 'open'">Acknowledge</button>
+              <button type="button" class="ghost btn--compact" @click="updateAlertStatus(alert._id, 'resolved')" x-show="alert.status !== 'resolved' && alert.status !== 'false_positive'">Resolve</button>
+              <button type="button" class="ghost btn--compact" @click="updateAlertStatus(alert._id, 'false_positive')" x-show="alert.status !== 'false_positive'">False Positive</button>
+              <button type="button" class="ghost btn--compact" @click="updateAlertStatus(alert._id, 'open')" x-show="alert.status !== 'open'">Reopen</button>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="alerts-empty" x-show="alerts.length === 0">
+        <p>No alerts match the current filters. Alerts appear here when rules trigger during event ingestion.</p>
+      </div>
+      <div class="pagination" x-show="alertsTotal > 20">
+        <button type="button" :disabled="alertsPage === 1" @click="alertsPage--; loadAlerts()">Prev</button>
+        <span x-text="`Page ${alertsPage}`"></span>
+        <button type="button" :disabled="alertsPage * 20 >= alertsTotal" @click="alertsPage++; loadAlerts()">Next</button>
+      </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header panel-header--collapsible" @click="togglePanel('rules')">
+        <h3>Alert Rules</h3>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button type="button" class="btn--compact" @click.stop="openRuleEditor()">+ Add rule</button>
+          <span class="panel-toggle" :class="panelState.rules ? 'panel-toggle--open' : ''">▸</span>
+        </div>
+      </div>
+      <div x-show="panelState.rules">
+        <div class="rules-list">
+        <template x-for="rule in rules" :key="rule.id">
+          <div class="rule-card" :class="rule.enabled ? '' : 'rule-card--disabled'">
+            <div class="rule-card__meta">
+              <span class="pill" :class="rule.severity === 'high' ? 'pill--err' : (rule.severity === 'medium' ? 'pill--warn' : '')" x-text="rule.severity"></span>
+              <label class="toggle-label">
+                <input type="checkbox" :checked="rule.enabled" @change="toggleRule(rule.id, $event.target.checked)">
+                <span x-text="rule.enabled ? 'On' : 'Off'"></span>
+              </label>
+            </div>
+            <strong x-text="rule.name"></strong>
+            <p x-text="rule.message"></p>
+            <div class="rule-card__conditions">
+              <template x-for="(cond, idx) in rule.conditions" :key="idx">
+                <span class="pill pill--tag" x-text="`${cond.field} ${cond.op} ${cond.value}`"></span>
+              </template>
+            </div>
+            <div class="rule-card__actions">
+              <button type="button" class="ghost btn--compact" @click="openRuleEditor(rule)">Edit</button>
+              <button type="button" class="ghost btn--compact" @click="deleteRule(rule.id)">Delete</button>
+            </div>
+          </div>
+        </template>
+      </div>
+      <div class="rules-empty" x-show="rules.length === 0">
+        <p>No custom rules yet. Pre-built admin-ops rules are active by default. Add your own rules to detect specific patterns.</p>
+      </div>
+      </div>
+
+      <div id="ruleModal" class="modal hidden" role="dialog" aria-modal="true" :class="{ 'hidden': !ruleModalOpen }">
+        <div class="modal__content" style="max-width: 600px;">
+          <div class="modal__header">
+            <h3 x-text="ruleEditId ? 'Edit Rule' : 'New Rule'"></h3>
+            <button type="button" class="ghost" @click="ruleModalOpen = false">Close</button>
+          </div>
+          <form class="rule-form" @submit.prevent="saveRule()">
+            <label>
+              Name
+              <input type="text" x-model="ruleEdit.name" placeholder="e.g. Failed CA Policy" required />
+            </label>
+            <label>
+              Severity
+              <select x-model="ruleEdit.severity">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label>
+              Message
+              <textarea x-model="ruleEdit.message" placeholder="What should the alert say?" rows="2"></textarea>
+            </label>
+            <div class="rule-conditions">
+              <span>Conditions (all must match)</span>
+              <template x-for="(cond, idx) in ruleEdit.conditions" :key="idx">
+                <div class="condition-row">
+                  <input type="text" x-model="cond.field" placeholder="field" list="ruleFieldOptions" required />
+                  <select x-model="cond.op">
+                    <option value="eq">equals</option>
+                    <option value="neq">not equals</option>
+                    <option value="contains">contains</option>
+                    <option value="in">in list</option>
+                    <option value="after_hours">after hours</option>
+                  </select>
+                  <input type="text" x-model="cond.value" placeholder="value" :required="cond.op !== 'after_hours'" />
+                  <button type="button" class="ghost btn--compact" @click="ruleEdit.conditions.splice(idx, 1)">−</button>
+                </div>
+              </template>
+              <button type="button" class="ghost btn--compact" @click="ruleEdit.conditions.push({field:'', op:'eq', value:''})">+ Add condition</button>
+            </div>
+            <datalist id="ruleFieldOptions">
+              <option value="service"></option>
+              <option value="operation"></option>
+              <option value="result"></option>
+              <option value="actor_display"></option>
+              <option value="timestamp"></option>
+            </datalist>
+            <div class="rule-form__actions">
+              <button type="submit">Save</button>
+              <button type="button" class="ghost" @click="ruleModalOpen = false">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header panel-header--collapsible" @click="togglePanel('filters')">
+        <h3>Filters</h3>
+        <span class="panel-toggle" :class="panelState.filters ? 'panel-toggle--open' : ''">▸</span>
+      </div>
+      <form id="filters" class="filters" @submit.prevent="resetPagination(); loadEvents()" x-show="panelState.filters">
+        <div class="filter-row">
+          <label>
+            User (name/UPN)
+            <input name="actor" type="text" placeholder="tomas@contoso.com" list="actorOptions" x-model="filters.actor" />
+            <datalist id="actorOptions">
+              <template x-for="opt in options.actors" :key="opt"><option :value="opt"></option></template>
+            </datalist>
+          </label>
+          <label>
+            Action (display name)
+            <input name="operation" type="text" placeholder="Add group member" list="operationOptions" x-model="filters.operation" />
+            <datalist id="operationOptions">
+              <template x-for="opt in options.operations" :key="opt"><option :value="opt"></option></template>
+            </datalist>
+          </label>
+          <label>
+            Action type (result)
+            <input name="result" type="text" placeholder="success / failure" list="resultOptions" x-model="filters.result" />
+            <datalist id="resultOptions">
+              <template x-for="opt in options.results" :key="opt"><option :value="opt"></option></template>
+            </datalist>
+          </label>
+          <label>
+            Limit
+            <input name="limit" type="number" min="1" max="500" value="100" x-model.number="filters.limit" />
+          </label>
+        </div>
+        <div class="filter-row">
+          <label>
+            From
+            <input name="start" type="datetime-local" x-model="filters.start" />
+          </label>
+          <label>
+            To
+            <input name="end" type="datetime-local" x-model="filters.end" />
+          </label>
+          <label>
+            Include tags
+            <input name="includeTags" type="text" placeholder="backup, critical" x-model="filters.includeTags" />
+          </label>
+          <label>
+            Exclude tags
+            <input name="excludeTags" type="text" placeholder="noise, auto" x-model="filters.excludeTags" />
+          </label>
+        </div>
+        <div class="filter-row">
+          <label class="span-2">
+            Search (raw/full-text)
+            <input name="search" type="text" placeholder="Any text to search in raw/summary" x-model="filters.search" />
+          </label>
+          <div class="filter-group span-2">
+            <span>App / Service</span>
+            <div class="multi-select">
+              <div class="multi-select__actions">
+                <button type="button" class="link" @click="filters.selectedServices = [...options.services]">All</button>
+                <button type="button" class="link" @click="filters.selectedServices = []">None</button>
+              </div>
+              <div class="multi-select__options">
+                <template x-for="opt in options.services" :key="opt">
+                  <label class="checkbox-label">
+                    <input type="checkbox" :value="opt" x-model="filters.selectedServices" />
+                    <span x-text="opt"></span>
+                  </label>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="filter-row actions-row">
+          <div class="actions">
+            <button type="submit">Apply filters</button>
+            <button type="button" id="clearBtn" class="ghost" @click="clearFilters()">Clear</button>
+            <button type="button" class="ghost" @click="saveCurrentFilters()">Save filters</button>
+            <button type="button" class="ghost" @click="bulkTagMatching()">Bulk tag matching</button>
+            <button type="button" class="ghost" @click="exportJSON()">Export JSON</button>
+            <button type="button" class="ghost" @click="exportCSV()">Export CSV</button>
+          </div>
+        </div>
+        <div class="filter-row" x-show="savedSearches.length">
+          <div class="saved-searches">
+            <span>Saved:</span>
+            <template x-for="ss in savedSearches" :key="ss.id">
+              <span class="pill pill--tag" style="cursor:pointer;" @click="applySavedSearch(ss)">
+                <span x-text="ss.name"></span>
+                <button type="button" class="link" style="margin-left:4px;" @click.stop="deleteSavedSearch(ss.id)">×</button>
+              </span>
+            </template>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel" x-show="aiFeaturesEnabled">
+      <div class="panel-header panel-header--collapsible" @click="togglePanel('ask')">
+        <h3>Ask a question</h3>
+        <span class="panel-toggle" :class="panelState.ask ? 'panel-toggle--open' : ''">▸</span>
+      </div>
+      <form class="ask-form" @submit.prevent="askQuestion()" x-show="panelState.ask">
+        <div class="ask-row">
+          <input
+            type="text"
+            placeholder="What happened to device ABC123 in the last 3 days?"
+            x-model="askQuestionText"
+            class="ask-input"
+          />
+          <button type="submit" :disabled="askLoading" x-text="askLoading ? 'Thinking…' : 'Ask'">Ask</button>
+        </div>
+        <div x-show="hasActiveFilters()" class="ask-filter-hint">
+          <small>Respecting active filters: <span x-text="activeFilterSummary()"></span></small>
+        </div>
+      </form>
+      <template x-if="askAnswer">
+        <div class="ask-result">
+          <div x-show="askLlmError" class="ask-error" x-text="askLlmError"></div>
+          <div class="ask-answer" x-html="askAnswerHtml"></div>
+          <template x-if="askEvents.length">
+            <div class="ask-events">
+              <h4>Referenced events</h4>
+              <template x-for="(evt, idx) in askEvents" :key="evt.id || idx">
+                <article class="event event--compact">
+                  <div class="event__meta">
+                    <span class="pill pill--clickable" x-text="evt.display_category || evt.service || '—'" @click="filterByService(evt.service || evt.display_category)" title="Filter by this service"></span>
+                    <span class="pill pill--clickable" :class="['success','succeeded','ok','passed','true'].includes((evt.result || '').toLowerCase()) ? 'pill--ok' : 'pill--warn'" x-text="evt.result || '—'" @click="filterByResult(evt.result)" title="Filter by this result"></span>
+                  </div>
+                  <h3 x-text="evt.operation || '—'"></h3>
+                  <p class="event__detail" x-show="evt.display_summary"><strong>Summary:</strong> <span x-text="evt.display_summary"></span></p>
+                  <p class="event__detail"><strong>Actor:</strong> <span x-text="evt.actor_display || '—'"></span></p>
+                  <p class="event__detail"><strong>Target:</strong> <span x-text="Array.isArray(evt.target_displays) ? evt.target_displays.join(', ') : '—'"></span></p>
+                  <p class="event__detail"><strong>When:</strong> <span x-text="evt.timestamp ? new Date(evt.timestamp).toLocaleString() : '—'"></span></p>
+                </article>
+              </template>
+            </div>
+          </template>
+          <button type="button" class="ghost" @click="clearAsk()">Clear</button>
+        </div>
+      </template>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header panel-header--collapsible" @click="togglePanel('events')">
+        <h2>Events</h2>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="count" x-text="countText"></span>
+          <span class="panel-toggle" :class="panelState.events ? 'panel-toggle--open' : ''">▸</span>
+        </div>
+      </div>
+      <div x-show="panelState.events">
+        <div id="status" class="status" aria-live="polite" x-text="statusText"></div>
+      <div id="events" class="events">
+        <template x-for="(evt, idx) in events" :key="evt._id || evt.id || idx">
+          <article class="event">
+            <div class="event__meta">
+              <span class="pill pill--clickable" x-text="evt.display_category || evt.service || '—'" @click="filterByService(evt.service || evt.display_category)" title="Filter by this service"></span>
+              <span class="pill pill--clickable" :class="['success','succeeded','ok','passed','true'].includes((evt.result || '').toLowerCase()) ? 'pill--ok' : 'pill--warn'" x-text="evt.result || '—'" @click="filterByResult(evt.result)" title="Filter by this result"></span>
+            </div>
+            <h3 x-text="evt.operation || '—'"></h3>
+            <p class="event__detail" x-show="evt.display_summary"><strong>Summary:</strong> <span x-text="evt.display_summary"></span></p>
+            <p class="event__detail"><strong x-text="evt.display_actor_label || 'User'"></strong>: <span x-text="displayActor(evt)"></span></p>
+            <p class="event__detail" x-show="evt.actor_owner_names && evt.actor_owner_names.length"><strong>App owners:</strong> <span x-text="(evt.actor_owner_names || []).slice(0,3).join(', ')"></span></p>
+            <p class="event__detail"><strong>Target:</strong> <span x-text="displayTargets(evt)"></span></p>
+            <p class="event__detail"><strong>When:</strong> <span x-text="evt.timestamp ? new Date(evt.timestamp).toLocaleString() : '—'"></span></p>
+
+            <div class="event__tags" x-show="evt.tags && evt.tags.length">
+              <template x-for="tag in (evt.tags || [])" :key="tag">
+                <span class="pill pill--tag" x-text="tag"></span>
+              </template>
+            </div>
+
+            <div class="event__comments" x-show="evt.comments && evt.comments.length">
+              <template x-for="c in (evt.comments || [])" :key="c.timestamp + c.text">
+                <p class="comment"><strong x-text="c.author"></strong>: <span x-text="c.text"></span> <small x-text="new Date(c.timestamp).toLocaleString()"></small></p>
+              </template>
+            </div>
+
+            <div class="event__actions">
+              <button type="button" class="ghost" @click="openModal(evt)">View raw event</button>
+              <input type="text" placeholder="Add tag" @keydown.enter="addTag(evt, $event.target.value); $event.target.value=''" />
+              <input type="text" placeholder="Add comment" @keydown.enter="addComment(evt, $event.target.value); $event.target.value=''" />
+            </div>
+          </article>
+        </template>
+      </div>
+      <div id="pagination" class="pagination">
+        <button type="button" id="prevPage" :disabled="cursorStack.length === 0" @click="goPrev()">Prev</button>
+        <span x-text="`Page ${cursorStack.length + 1}`"></span>
+        <button type="button" id="nextPage" :disabled="!nextCursor" @click="goNext()">Next</button>
+      </div>
+      </div>
+    </section>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle" :class="{ 'hidden': !modalOpen }">
+      <div class="modal__content">
+        <div class="modal__header">
+          <h3 id="modalTitle">Raw Event</h3>
+          <div class="modal__actions">
+            <button type="button" class="ghost" @click="copyRawEvent()">Copy</button>
+            <button type="button" class="ghost" x-show="aiFeaturesEnabled" :disabled="modalExplainLoading" @click="explainEvent()" x-text="modalExplainLoading ? 'Explaining…' : 'Explain'">Explain</button>
+            <button type="button" id="closeModal" class="ghost" @click="modalOpen = false">Close</button>
+          </div>
+        </div>
+        <div x-show="modalExplanation || modalExplainError" class="modal__explanation">
+          <div x-show="modalExplainError" class="ask-error" x-text="modalExplainError"></div>
+          <div x-show="modalExplanation" class="ask-answer" x-html="_mdToHtml(modalExplanation)"></div>
+        </div>
+        <pre id="modalBody" x-text="modalBody"></pre>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <div class="footer__left">
+        <span class="footer__brand">Admin Operations Center</span>
+        <span class="footer__version" x-text="'v' + appVersion"></span>
+      </div>
+      <div class="footer__center">
+        <a :href="repoUrl + '/issues/new'" target="_blank" rel="noopener">🐛 Report an issue</a>
+        <a :href="repoUrl" target="_blank" rel="noopener">💻 Source code</a>
+        <a :href="docsUrl" target="_blank" rel="noopener">📖 Documentation</a>
+      </div>
+      <div class="footer__right">
+        <span>Built with ❤️ by CQRE.NET</span>
+      </div>
+    </footer>
+  </div>
+
+</body>
+</html>
