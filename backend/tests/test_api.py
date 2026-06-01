@@ -36,24 +36,28 @@ def test_summary_empty(client):
 
 
 def test_summary_with_events(client, mock_events_collection):
-    mock_events_collection.insert_one({
-        "id": "evt-s1",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Directory",
-        "operation": "Add user",
-        "result": "success",
-        "actor_display": "Alice",
-        "raw_text": "",
-    })
-    mock_events_collection.insert_one({
-        "id": "evt-s2",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Intune",
-        "operation": "Assign policy",
-        "result": "success",
-        "actor_display": "Bob",
-        "raw_text": "",
-    })
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-s1",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Directory",
+            "operation": "Add user",
+            "result": "success",
+            "actor_display": "Alice",
+            "raw_text": "",
+        }
+    )
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-s2",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Intune",
+            "operation": "Assign policy",
+            "result": "success",
+            "actor_display": "Bob",
+            "raw_text": "",
+        }
+    )
     response = client.get("/api/summary?days=7")
     assert response.status_code == 200
     data = response.json()
@@ -87,15 +91,17 @@ def test_list_events_empty(client):
 
 def test_list_events_cursor_pagination(client, mock_events_collection):
     for i in range(5):
-        mock_events_collection.insert_one({
-            "id": f"evt-{i}",
-            "timestamp": datetime.now(UTC).isoformat(),
-            "service": "Directory",
-            "operation": "Add user",
-            "result": "success",
-            "actor_display": f"Actor {i}",
-            "raw_text": "",
-        })
+        mock_events_collection.insert_one(
+            {
+                "id": f"evt-{i}",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "service": "Directory",
+                "operation": "Add user",
+                "result": "success",
+                "actor_display": f"Actor {i}",
+                "raw_text": "",
+            }
+        )
     response = client.get("/api/events?page_size=2")
     assert response.status_code == 200
     data = response.json()
@@ -109,24 +115,28 @@ def test_list_events_cursor_pagination(client, mock_events_collection):
 
 
 def test_list_events_filter_by_service(client, mock_events_collection):
-    mock_events_collection.insert_one({
-        "id": "evt-1",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Exchange",
-        "operation": "Update",
-        "result": "success",
-        "actor_display": "Alice",
-        "raw_text": "",
-    })
-    mock_events_collection.insert_one({
-        "id": "evt-2",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Directory",
-        "operation": "Add",
-        "result": "success",
-        "actor_display": "Bob",
-        "raw_text": "",
-    })
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-1",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Exchange",
+            "operation": "Update",
+            "result": "success",
+            "actor_display": "Alice",
+            "raw_text": "",
+        }
+    )
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-2",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Directory",
+            "operation": "Add",
+            "result": "success",
+            "actor_display": "Bob",
+            "raw_text": "",
+        }
+    )
     response = client.get("/api/events?service=Exchange")
     assert response.status_code == 200
     data = response.json()
@@ -142,16 +152,18 @@ def test_list_events_page_size_validation(client):
 
 
 def test_filter_options(client, mock_events_collection):
-    mock_events_collection.insert_one({
-        "id": "evt-1",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Intune",
-        "operation": "Assign",
-        "result": "failure",
-        "actor_display": "Charlie",
-        "actor_upn": "charlie@example.com",
-        "raw_text": "",
-    })
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-1",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Intune",
+            "operation": "Assign",
+            "result": "failure",
+            "actor_display": "Charlie",
+            "actor_upn": "charlie@example.com",
+            "raw_text": "",
+        }
+    )
     response = client.get("/api/filter-options")
     assert response.status_code == 200
     data = response.json()
@@ -183,30 +195,34 @@ def test_graph_webhook_notification(client):
 
 
 def test_update_tags(client, mock_events_collection):
-    mock_events_collection.insert_one({
-        "id": "evt-tags",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Directory",
-        "operation": "Add user",
-        "result": "success",
-        "actor_display": "Alice",
-        "raw_text": "",
-    })
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-tags",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Directory",
+            "operation": "Add user",
+            "result": "success",
+            "actor_display": "Alice",
+            "raw_text": "",
+        }
+    )
     response = client.patch("/api/events/evt-tags/tags", json={"tags": ["investigating", "urgent"]})
     assert response.status_code == 200
     assert response.json()["tags"] == ["investigating", "urgent"]
 
 
 def test_add_comment(client, mock_events_collection):
-    mock_events_collection.insert_one({
-        "id": "evt-comment",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Directory",
-        "operation": "Add user",
-        "result": "success",
-        "actor_display": "Alice",
-        "raw_text": "",
-    })
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-comment",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Directory",
+            "operation": "Add user",
+            "result": "success",
+            "actor_display": "Alice",
+            "raw_text": "",
+        }
+    )
     response = client.post("/api/events/evt-comment/comments", json={"text": "Looks suspicious"})
     assert response.status_code == 200
     data = response.json()
@@ -259,24 +275,28 @@ def test_privacy_filtering_events_by_operation(client, mock_events_collection, m
     monkeypatch.setattr("auth.user_can_access_privacy_services", lambda claims: False)
     monkeypatch.setattr("routes.events.user_can_access_privacy_services", lambda claims: False)
 
-    mock_events_collection.insert_one({
-        "id": "evt-safe",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Exchange",
-        "operation": "Add-MailboxPermission",
-        "result": "success",
-        "actor_display": "Alice",
-        "raw_text": "",
-    })
-    mock_events_collection.insert_one({
-        "id": "evt-priv",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Exchange",
-        "operation": "Send",
-        "result": "success",
-        "actor_display": "Bob",
-        "raw_text": "",
-    })
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-safe",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Exchange",
+            "operation": "Add-MailboxPermission",
+            "result": "success",
+            "actor_display": "Alice",
+            "raw_text": "",
+        }
+    )
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-priv",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Exchange",
+            "operation": "Send",
+            "result": "success",
+            "actor_display": "Bob",
+            "raw_text": "",
+        }
+    )
 
     response = client.get("/api/events")
     assert response.status_code == 200
@@ -310,16 +330,18 @@ def test_saved_searches_crud(client, monkeypatch):
 
 
 def test_bulk_tags_append(client, mock_events_collection):
-    mock_events_collection.insert_one({
-        "id": "evt-bulk",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "service": "Exchange",
-        "operation": "Update",
-        "result": "success",
-        "actor_display": "Alice",
-        "raw_text": "",
-        "tags": ["existing"],
-    })
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-bulk",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Exchange",
+            "operation": "Update",
+            "result": "success",
+            "actor_display": "Alice",
+            "raw_text": "",
+            "tags": ["existing"],
+        }
+    )
     response = client.post("/api/events/bulk-tags?service=Exchange", json={"tags": ["backup"], "mode": "append"})
     assert response.status_code == 200
     data = response.json()

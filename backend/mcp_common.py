@@ -158,4 +158,3 @@ GET_SUMMARY_SCHEMA = {
         "days": {"type": "integer", "description": "Number of days to summarise (default 7)"},
     },
 }
-
