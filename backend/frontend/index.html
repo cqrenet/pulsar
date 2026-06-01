@@ -192,9 +192,8 @@
             <th class="col-expand" scope="col"></th>
           </tr>
         </thead>
-        <tbody>
-          <template x-for="(evt, idx) in events" :key="evt._id || evt.id || idx">
-            <template>
+        <template x-for="(evt, idx) in events" :key="evt._id || evt.id || idx">
+          <tbody class="event-group">
 
               <!-- Summary row -->
               <tr class="event-row" :class="{expanded: expandedEventId === (evt.id || idx)}"
@@ -301,9 +300,9 @@
                   </div>
                 </td>
               </tr>
-            </template>
-          </template>
-        </tbody>
+
+          </tbody>
+        </template>
       </table>
 
       <!-- Status / empty states -->

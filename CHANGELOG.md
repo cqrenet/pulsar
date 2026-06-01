@@ -2,6 +2,12 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.0.5] — 2026-06-01
+
+### Fixed
+
+- Fixed invalid HTML table structure: `<template>` elements inside `<tbody>` caused inconsistent row rendering. Each event now uses its own `<tbody class="event-group">`, with CSS updated to match.
+
 ## [1.0.4] — 2026-06-01
 
 ### Changed
