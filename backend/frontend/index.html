@@ -294,122 +294,122 @@
             <th class="col-expand" scope="col"></th>
           </tr>
         </thead>
-        <tbody>
         <template x-for="(evt, idx) in events" :key="evt._id || evt.id || idx">
-              <!-- Summary row -->
-              <tr class="event-row" :class="{expanded: expandedEventId === (evt.id || idx)}"
-                @click="toggleRow(evt.id || idx)"
-                role="button"
-                :aria-expanded="expandedEventId === (evt.id || idx)"
-                tabindex="0"
-                @keydown.enter="toggleRow(evt.id || idx)"
-                @keydown.space.prevent="toggleRow(evt.id || idx)">
-                <td class="col-time">
-                  <span class="ts" :title="formatFullTime(evt.timestamp)" x-text="relativeTime(evt.timestamp)"></span>
-                </td>
-                <td class="col-svc">
-                  <span class="svc-badge"
-                    :style="'border-left-color:' + serviceColor(evt.service)"
-                    x-text="evt.service || '—'"></span>
-                </td>
-                <td class="col-op">
-                  <span class="op-name" x-text="evt.operation || '—'"></span>
-                  <span class="op-summary" x-show="evt.display_summary" x-text="evt.display_summary"></span>
-                </td>
-                <td class="col-actor">
-                  <span class="actor-cell">
-                    <span class="actor-text" x-text="displayActor(evt)"></span>
-                    <button class="actor-timeline-btn" :title="'Timeline for ' + displayActor(evt)"
-                      @click.stop="openTimeline(displayActor(evt))">↗</button>
-                  </span>
-                </td>
-                <td class="col-result">
-                  <span class="result-badge"
-                    :class="isSuccess(evt.result) ? 'result-badge--ok' : isFailure(evt.result) ? 'result-badge--err' : 'result-badge--neutral'"
-                    x-text="evt.result || '—'"></span>
-                </td>
-                <td class="col-expand">
-                  <svg class="chevron" :class="{open: expandedEventId === (evt.id || idx)}"
-                    width="12" height="12" viewBox="0 0 12 12" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M4 2l4 4-4 4"/>
-                  </svg>
-                </td>
-              </tr>
+          <tbody class="event-group">
+            <!-- Summary row -->
+            <tr class="event-row" :class="{expanded: expandedEventId === (evt.id || idx)}"
+              @click="toggleRow(evt.id || idx)"
+              role="button"
+              :aria-expanded="expandedEventId === (evt.id || idx)"
+              tabindex="0"
+              @keydown.enter="toggleRow(evt.id || idx)"
+              @keydown.space.prevent="toggleRow(evt.id || idx)">
+              <td class="col-time">
+                <span class="ts" :title="formatFullTime(evt.timestamp)" x-text="relativeTime(evt.timestamp)"></span>
+              </td>
+              <td class="col-svc">
+                <span class="svc-badge"
+                  :style="'border-left-color:' + serviceColor(evt.service)"
+                  x-text="evt.service || '—'"></span>
+              </td>
+              <td class="col-op">
+                <span class="op-name" x-text="evt.operation || '—'"></span>
+                <span class="op-summary" x-show="evt.display_summary" x-text="evt.display_summary"></span>
+              </td>
+              <td class="col-actor">
+                <span class="actor-cell">
+                  <span class="actor-text" x-text="displayActor(evt)"></span>
+                  <button class="actor-timeline-btn" :title="'Timeline for ' + displayActor(evt)"
+                    @click.stop="openTimeline(displayActor(evt))">↗</button>
+                </span>
+              </td>
+              <td class="col-result">
+                <span class="result-badge"
+                  :class="isSuccess(evt.result) ? 'result-badge--ok' : isFailure(evt.result) ? 'result-badge--err' : 'result-badge--neutral'"
+                  x-text="evt.result || '—'"></span>
+              </td>
+              <td class="col-expand">
+                <svg class="chevron" :class="{open: expandedEventId === (evt.id || idx)}"
+                  width="12" height="12" viewBox="0 0 12 12" fill="none"
+                  stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 2l4 4-4 4"/>
+                </svg>
+              </td>
+            </tr>
 
-              <!-- Expanded detail row -->
-              <tr class="event-detail-row" x-show="expandedEventId === (evt.id || idx)">
-                <td colspan="6">
-                  <div class="event-detail">
-                    <div class="event-detail__grid">
+            <!-- Expanded detail row -->
+            <tr class="event-detail-row" x-show="expandedEventId === (evt.id || idx)">
+              <td colspan="6">
+                <div class="event-detail">
+                  <div class="event-detail__grid">
 
-                      <!-- Left column: event metadata -->
-                      <div class="detail-group">
-                        <div class="detail-row" x-show="evt.display_summary">
-                          <span class="detail-label">Summary</span>
-                          <span class="detail-value" x-text="evt.display_summary"></span>
-                        </div>
-                        <div class="detail-row">
-                          <span class="detail-label">Target</span>
-                          <span class="detail-value" x-text="displayTargets(evt)"></span>
-                        </div>
-                        <div class="detail-row">
-                          <span class="detail-label">Time</span>
-                          <span class="detail-value ts" x-text="formatFullTime(evt.timestamp)"></span>
-                        </div>
-                        <div class="detail-row" x-show="evt.actor_owner_names && evt.actor_owner_names.length">
-                          <span class="detail-label">App owners</span>
-                          <span class="detail-value" x-text="(evt.actor_owner_names || []).join(', ')"></span>
-                        </div>
-                        <div class="detail-row">
-                          <span class="detail-label">Event ID</span>
-                          <span class="detail-value ts" x-text="evt.id || '—'" style="word-break:break-all;"></span>
-                        </div>
+                    <!-- Left column: event metadata -->
+                    <div class="detail-group">
+                      <div class="detail-row" x-show="evt.display_summary">
+                        <span class="detail-label">Summary</span>
+                        <span class="detail-value" x-text="evt.display_summary"></span>
                       </div>
-
-                      <!-- Right column: tags + comments -->
-                      <div class="detail-group">
-                        <div class="detail-row">
-                          <span class="detail-label">Tags</span>
-                          <div class="tag-group">
-                            <template x-for="tag in (evt.tags || [])" :key="tag">
-                              <span class="tag" x-text="tag"></span>
-                            </template>
-                            <input class="tag-input" type="text" placeholder="+ tag"
-                              @keydown.enter="addTag(evt, $event.target.value); $event.target.value=''"
-                              @keydown.escape="$event.target.blur()" />
-                          </div>
-                        </div>
-                        <div class="detail-row" x-show="evt.comments && evt.comments.length">
-                          <span class="detail-label">Comments</span>
-                          <div class="comments-list">
-                            <template x-for="c in (evt.comments || [])" :key="c.timestamp + c.text">
-                              <div class="comment">
-                                <strong x-text="c.author || 'user'"></strong>
-                                <span x-text="c.text"></span>
-                                <small x-text="relativeTime(c.timestamp)"></small>
-                              </div>
-                            </template>
-                          </div>
-                        </div>
-                        <input class="filter-input comment-input" type="text" placeholder="Add a comment…"
-                          @keydown.enter="addComment(evt, $event.target.value); $event.target.value=''"
-                          @keydown.escape="$event.target.blur()" />
+                      <div class="detail-row">
+                        <span class="detail-label">Target</span>
+                        <span class="detail-value" x-text="displayTargets(evt)"></span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-label">Time</span>
+                        <span class="detail-value ts" x-text="formatFullTime(evt.timestamp)"></span>
+                      </div>
+                      <div class="detail-row" x-show="evt.actor_owner_names && evt.actor_owner_names.length">
+                        <span class="detail-label">App owners</span>
+                        <span class="detail-value" x-text="(evt.actor_owner_names || []).join(', ')"></span>
+                      </div>
+                      <div class="detail-row">
+                        <span class="detail-label">Event ID</span>
+                        <span class="detail-value ts" x-text="evt.id || '—'" style="word-break:break-all;"></span>
                       </div>
                     </div>
 
-                    <div class="event-detail__actions">
-                      <button class="btn btn--ghost btn--sm" @click.stop="openModal(evt)">View raw JSON</button>
-                      <button class="btn btn--ghost btn--sm" @click.stop="copyEventId(evt)">Copy ID</button>
-                      <button class="btn btn--ghost btn--sm" @click.stop="openTimeline(displayActor(evt))">
-                        Actor timeline →
-                      </button>
+                    <!-- Right column: tags + comments -->
+                    <div class="detail-group">
+                      <div class="detail-row">
+                        <span class="detail-label">Tags</span>
+                        <div class="tag-group">
+                          <template x-for="tag in (evt.tags || [])" :key="tag">
+                            <span class="tag" x-text="tag"></span>
+                          </template>
+                          <input class="tag-input" type="text" placeholder="+ tag"
+                            @keydown.enter="addTag(evt, $event.target.value); $event.target.value=''"
+                            @keydown.escape="$event.target.blur()" />
+                        </div>
+                      </div>
+                      <div class="detail-row" x-show="evt.comments && evt.comments.length">
+                        <span class="detail-label">Comments</span>
+                        <div class="comments-list">
+                          <template x-for="c in (evt.comments || [])" :key="c.timestamp + c.text">
+                            <div class="comment">
+                              <strong x-text="c.author || 'user'"></strong>
+                              <span x-text="c.text"></span>
+                              <small x-text="relativeTime(c.timestamp)"></small>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                      <input class="filter-input comment-input" type="text" placeholder="Add a comment…"
+                        @keydown.enter="addComment(evt, $event.target.value); $event.target.value=''"
+                        @keydown.escape="$event.target.blur()" />
                     </div>
                   </div>
-                </td>
-              </tr>
+
+                  <div class="event-detail__actions">
+                    <button class="btn btn--ghost btn--sm" @click.stop="openModal(evt)">View raw JSON</button>
+                    <button class="btn btn--ghost btn--sm" @click.stop="copyEventId(evt)">Copy ID</button>
+                    <button class="btn btn--ghost btn--sm" @click.stop="openTimeline(displayActor(evt))">
+                      Actor timeline →
+                    </button>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </tbody>
         </template>
-        </tbody>
       </table>
 
       <!-- Status / empty states -->
