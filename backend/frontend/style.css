@@ -510,7 +510,7 @@ body {
   cursor: pointer;
   transition: background 0.08s;
 }
-.event-group:last-child .event-row td { border-bottom: none; }
+.event-row:last-of-type td { border-bottom: none; }
 .event-row:hover td { background: var(--surface); }
 .event-row.expanded td {
   background: var(--surface);

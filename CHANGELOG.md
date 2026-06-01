@@ -2,6 +2,12 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.0.6] — 2026-06-01
+
+### Fixed
+
+- Reverted multiple `<tbody>` approach; returned to single `<tbody>` with `<template>` iteration inside, using `:last-of-type` CSS selector for correct row border rendering across browsers.
+
 ## [1.0.5] — 2026-06-01
 
 ### Fixed
