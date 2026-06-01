@@ -78,5 +78,3 @@ class AlertRuleResponse(BaseModel):
     severity: Literal["high", "medium", "low"]
     conditions: list[AlertCondition] = Field(..., max_length=20)
     message: str = Field(..., max_length=1000)
-
-
