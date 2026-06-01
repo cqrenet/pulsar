@@ -1,6 +1,5 @@
-# PULSAR
+<img src="docs/pulsar-logo.svg" alt="PULSAR — Platform for Unified Log Search, Alerting &amp; Review" width="480"/>
 
-> **Platform for Unified Log Search, Alerting & Review**  
 > Part of the [CQRE](https://cqre.net) M365 governance suite alongside [ASTRAL](https://github.com/cqrenet/astral).
 
 PULSAR ingests Microsoft 365 admin audit events into MongoDB and exposes a UI, REST API, and MCP server for search, filtering, alerting, and SIEM forwarding. It answers the question: *"what happened in my tenant, when, and by whom?"*

@@ -1,0 +1,39 @@
+<svg viewBox="0 0 580 100" xmlns="http://www.w3.org/2000/svg" role="img">
+  <title>PULSAR — Platform for Unified Log Search, Alerting &amp; Review</title>
+  <style>
+    @media (prefers-color-scheme: light) {
+      .ring  { stroke: #94a3b8; }
+      .beam  { stroke: #94a3b8; }
+      .star  { fill: #1e293b; }
+      .word  { fill: #0f172a; }
+      .sub   { fill: #64748b; }
+      .rule  { stroke: #94a3b8; }
+    }
+    @media (prefers-color-scheme: dark) {
+      .ring  { stroke: #475569; }
+      .beam  { stroke: #64748b; }
+      .star  { fill: #e2e8f0; }
+      .word  { fill: #f1f5f9; }
+      .sub   { fill: #94a3b8; }
+      .rule  { stroke: #475569; }
+    }
+  </style>
+
+  <g transform="translate(50,50)">
+    <circle r="44" fill="none" class="ring" stroke-width="1.1" opacity="0.25"/>
+    <circle r="32" fill="none" class="ring" stroke-width="1.1" opacity="0.35"/>
+    <circle r="20" fill="none" class="ring" stroke-width="1.1" opacity="0.55"/>
+
+    <line x1="-58" y1="0" x2="-23" y2="0" fill="none" class="beam" stroke-width="1.6" stroke-linecap="round" opacity="0.6" stroke-dasharray="3.5 3"/>
+    <line x1="23"  y1="0" x2="58"  y2="0" fill="none" class="beam" stroke-width="1.6" stroke-linecap="round" opacity="0.6" stroke-dasharray="3.5 3"/>
+
+    <polygon points="0,-22 5,-5 22,0 5,5 0,22 -5,5 -22,0 -5,-5" class="star" opacity="0.45"/>
+    <polygon points="0,-13 3,-3 13,0 3,3 0,13 -3,3 -13,0 -3,-3" class="star"/>
+    <circle r="3.5" class="star" opacity="0.9"/>
+  </g>
+
+  <text x="118" y="44" font-family="system-ui,-apple-system,sans-serif" font-size="40" font-weight="500" letter-spacing="9" class="word">PULSAR</text>
+  <text x="120" y="67" font-family="system-ui,-apple-system,sans-serif" font-size="11.5" font-weight="400" letter-spacing="2.8" class="sub">PLATFORM FOR UNIFIED LOG SEARCH, ALERTING &amp; REVIEW</text>
+  <line x1="120" y1="76" x2="558" y2="76" class="rule" stroke-width="0.7" opacity="0.3"/>
+  <text x="121" y="92" font-family="system-ui,-apple-system,sans-serif" font-size="10" font-weight="400" letter-spacing="2" class="sub" opacity="0.65">CQRE.NET · M365 GOVERNANCE SUITE</text>
+</svg>

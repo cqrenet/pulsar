@@ -53,7 +53,9 @@ body {
 }
 
 .topbar__logo {
-  font-size: 20px;
+  display: block;
+  flex-shrink: 0;
+  color: inherit;
 }
 
 .topbar__links {
