@@ -5,8 +5,6 @@ Imported by both:
   - routes/mcp.py  (SSE transport, mounted in FastAPI with OIDC auth)
 """
 
-import json
-
 from mcp.server.fastmcp import FastMCP
 from mcp_common import (
     handle_get_event,
