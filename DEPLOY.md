@@ -15,7 +15,7 @@ PULSAR handles sensitive audit data and admin credentials. It must always be acc
 - Docker Engine 24+ and Docker Compose plugin
 - A reverse proxy configured to forward HTTPS traffic to `127.0.0.1:8000`
 - A valid `.env` file at the repo root (see `.env.example`)
-- An Entra app registration with the required Graph permissions (see README)
+- An Entra app registration — run `.\deploy\bootstrap-tenant.ps1 -TenantName "<tenant>"` to create it and get the exact `.env` lines to paste. For existing deployments with a manually created app, use `.\deploy\bootstrap-mcp-auth.ps1 -TenantName "<tenant>" -ExistingAppId "<CLIENT_ID>"` to add MCP capabilities without touching the rest.
 
 ## Quick start
 

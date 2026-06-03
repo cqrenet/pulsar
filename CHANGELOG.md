@@ -2,6 +2,24 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.2.0] — 2026-06-03
+
+### Added
+
+- **MCP SSE API key authentication** — `MCP_API_KEY` provides a lightweight alternative (or complement) to Entra OIDC for the MCP SSE endpoint. Clients send the key via `Authorization: Bearer <key>` or `x-api-key: <key>`.
+- **OAuth 2.0 authorization server metadata** — Exposes `/.well-known/oauth-authorization-server` (RFC 8414) when `MCP_CLIENT_ID` and `AUTH_TENANT_ID` are set, enabling Claude Desktop and AURORA to discover Entra auth endpoints automatically.
+- **Bootstrap PowerShell scripts** in `deploy/`:
+  - `bootstrap-tenant.ps1` — creates the Entra app registration, assigns required Graph / Office 365 Management API permissions, grants admin consent, and prints ready-to-paste `.env` lines.
+  - `bootstrap-mcp-auth.ps1` — adds MCP-specific scopes and redirect URIs to an existing app registration without rotating secrets.
+- **Startup security warnings** — Logs a warning when the MCP endpoint is open (both `AUTH_ENABLED=false` and `MCP_API_KEY` unset).
+
+### Changed
+
+- **MCP SSE auth middleware rewritten as pure ASGI** — Replaces `BaseHTTPMiddleware` with a raw ASGI class to avoid response-body buffering that silently breaks SSE streaming.
+- **Entra JWT audience validation** — Now accepts both the bare GUID and the `api://<guid>` Application ID URI form, matching how Entra v2.0 issues tokens for custom scopes.
+- `README.md` and `DEPLOY.md` expanded with detailed MCP setup instructions (stdio vs SSE, API key vs Entra, OAuth discovery).
+- `.env.example` reorganised with dedicated MCP configuration section.
+
 ## [1.1.1] — 2026-06-01
 
 ### Fixed

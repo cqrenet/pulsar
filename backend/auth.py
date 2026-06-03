@@ -81,7 +81,11 @@ def _decode_token(token: str, jwks):
         pub_key = RSAAlgorithm.from_jwk(json.dumps(key_dict))
         decode_kwargs = {"algorithms": ["RS256"]}
         if AUTH_CLIENT_ID:
-            decode_kwargs["audience"] = AUTH_CLIENT_ID
+            # Entra v2.0 tokens issued for a custom scope (e.g. api://<id>/user_impersonation)
+            # carry aud = "api://<clientId>", not the bare GUID.  Accept both so operators
+            # can set AUTH_CLIENT_ID to either the GUID or the full Application ID URI.
+            bare = AUTH_CLIENT_ID.removeprefix("api://")
+            decode_kwargs["audience"] = [bare, f"api://{bare}"]
         claims = decode(token, pub_key, **decode_kwargs)
 
         tid = claims.get("tid")

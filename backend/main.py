@@ -11,11 +11,15 @@ from audit_trail import log_action
 from config import (
     AUTH_ALLOWED_GROUPS,
     AUTH_ALLOWED_ROLES,
+    AUTH_CLIENT_ID,
     AUTH_ENABLED,
+    AUTH_TENANT_ID,
     CORS_ORIGINS,
     DOCS_ENABLED,
     ENABLE_PERIODIC_FETCH,
     FETCH_INTERVAL_MINUTES,
+    MCP_API_KEY,
+    MCP_CLIENT_ID,
     METRICS_ALLOWED_IPS,
     WEBHOOK_CLIENT_SECRET,
 )
@@ -174,6 +178,35 @@ app.include_router(alerts_router, prefix="/api")
 app.mount("/mcp", mcp_app)
 
 
+# ---------------------------------------------------------------------------
+# OAuth 2.0 authorization server metadata (RFC 8414)
+# Enables Claude Desktop, AURORA, and other MCP clients to discover Entra auth.
+# Exposed at the server root so MCP clients can find it regardless of where
+# the /mcp mount lives.  Requires AUTH_TENANT_ID (or TENANT_ID) + MCP_CLIENT_ID.
+# ---------------------------------------------------------------------------
+_oauth_client_id = MCP_CLIENT_ID or AUTH_CLIENT_ID
+_oauth_tenant_id = AUTH_TENANT_ID
+
+if _oauth_tenant_id and _oauth_client_id:
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    _oauth_base = f"https://login.microsoftonline.com/{_oauth_tenant_id}"
+    _oauth_metadata = {
+        "issuer":                                f"{_oauth_base}/v2.0",
+        "authorization_endpoint":                f"{_oauth_base}/oauth2/v2.0/authorize",
+        "token_endpoint":                        f"{_oauth_base}/oauth2/v2.0/token",
+        "scopes_supported":                      [f"api://{_oauth_client_id}/user_impersonation", "openid", "profile", "offline_access"],
+        "response_types_supported":              ["code"],
+        "grant_types_supported":                 ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported":      ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+    }
+
+    @app.get("/.well-known/oauth-authorization-server", include_in_schema=False)
+    async def oauth_authorization_server_metadata():
+        return _JSONResponse(_oauth_metadata)
+
+
 @app.get("/health")
 async def health_check():
     from database import db
@@ -270,7 +303,22 @@ async def start_periodic_fetch():
         "PULSAR startup",
         version=os.environ.get("VERSION", "unknown"),
         auth_enabled=AUTH_ENABLED,
+        mcp_api_key_set=bool(MCP_API_KEY),
+        oauth_discovery=bool(_oauth_tenant_id and _oauth_client_id),
     )
+    if not AUTH_ENABLED and not MCP_API_KEY:
+        logger.warning(
+            "MCP endpoint is open: AUTH_ENABLED=false and MCP_API_KEY is not set. "
+            "Anyone who can reach /mcp can query audit events. "
+            "Set MCP_API_KEY for a simple API key gate, or AUTH_ENABLED=true for Entra ID auth."
+        )
+    if _oauth_tenant_id and _oauth_client_id:
+        logger.info(
+            "OAuth discovery endpoint active",
+            path="/.well-known/oauth-authorization-server",
+            tenant=_oauth_tenant_id,
+            client=_oauth_client_id,
+        )
     # Warn when auth is enabled but no role/group restrictions are configured
     if AUTH_ENABLED and not AUTH_ALLOWED_ROLES and not AUTH_ALLOWED_GROUPS:
         logger.warning(

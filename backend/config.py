@@ -73,6 +73,15 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS: int = 120
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
+    # MCP API key (lightweight alternative / complement to OIDC for MCP SSE access)
+    # Accepts the key via Authorization: Bearer <key> or x-api-key header.
+    # Works alongside AUTH_ENABLED — either valid Entra token OR matching key is accepted.
+    MCP_API_KEY: str = ""
+
+    # OAuth discovery (RFC 8414) — enables Claude Desktop / AURORA to discover Entra auth.
+    # Set both to expose /.well-known/oauth-authorization-server.
+    MCP_CLIENT_ID: str = ""  # Entra app registration client ID for the MCP scope
+
     # Security / docs exposure
     DOCS_ENABLED: bool = False
     METRICS_ALLOWED_IPS: str = "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
@@ -126,6 +135,9 @@ WEBHOOK_CLIENT_SECRET = _settings.WEBHOOK_CLIENT_SECRET
 RATE_LIMIT_ENABLED = _settings.RATE_LIMIT_ENABLED
 RATE_LIMIT_REQUESTS = _settings.RATE_LIMIT_REQUESTS
 RATE_LIMIT_WINDOW_SECONDS = _settings.RATE_LIMIT_WINDOW_SECONDS
+
+MCP_API_KEY = _settings.MCP_API_KEY.strip()
+MCP_CLIENT_ID = _settings.MCP_CLIENT_ID.strip()
 
 DOCS_ENABLED = _settings.DOCS_ENABLED
 METRICS_ALLOWED_IPS = _settings.METRICS_ALLOWED_IPS

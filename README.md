@@ -17,19 +17,27 @@ PULSAR ingests Microsoft 365 admin audit events into MongoDB and exposes a UI, R
 
 ## Prerequisites
 
-- Python 3.11+
 - Docker Desktop (for the quickest start) or a local MongoDB instance
-- An Entra app registration with **Application** permissions and admin consent:
-  - `AuditLog.Read.All` — Entra directory audit logs
-  - `ActivityFeed.Read` — Exchange/SharePoint/Teams via Office 365 Management Activity API
-  - `DeviceManagementConfiguration.Read.All` — Intune audit events
-- Optional: `AUTH_ENABLED=true` with `AUTH_TENANT_ID`/`AUTH_CLIENT_ID` to protect the API
+- PowerShell 5.1+ for the provisioning script (pre-installed on Windows; `brew install --cask powershell` on macOS)
+- An Entra app registration — created by the bootstrap script below
 
 ## Quick Start
 
+**1. Provision the Entra app registration**
+
+```powershell
+.\deploy\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com"
+```
+
+The script creates the app registration, assigns the required Graph and Office 365 Management API permissions, grants admin consent, and outputs the exact `.env` lines to copy.
+
+**Existing deployment?** If PULSAR is already running with a manually created app registration, use `bootstrap-mcp-auth.ps1` instead — it adds MCP capabilities to your existing app without rotating the client secret or changing permissions.
+
+**2. Configure and start**
+
 ```bash
 cp .env.example .env
-# Edit .env: add TENANT_ID, CLIENT_ID, CLIENT_SECRET
+# Paste the lines printed by the bootstrap script
 docker compose up --build
 ```
 
@@ -106,37 +114,90 @@ Before deploying to production:
 
 ## MCP Server
 
-PULSAR exposes an MCP interface in two forms:
+PULSAR exposes an MCP server in two transport modes.
 
-**HTTP/SSE (production)** — mounted at `/mcp`, behind OIDC auth:
-
-```
-GET  /mcp/sse              — establish SSE stream
-POST /mcp/messages/        — send tool calls
-```
-
-**stdio (local development)** — `python backend/mcp_server.py`:
-
-Claude Desktop config:
-```json
-{
-  "mcpServers": {
-    "pulsar": {
-      "command": "python",
-      "args": ["/path/to/pulsar/backend/mcp_server.py"],
-      "env": {"MONGO_URI": "mongodb://root:example@localhost:27017"}
-    }
-  }
-}
-```
-
-Available tools:
+### Tools
 
 | Tool | Description |
 |------|-------------|
 | `search_events` | Filter audit events by entity, service, operation, result, time range |
 | `get_event` | Retrieve full event JSON by ID |
 | `get_summary` | Aggregated activity summary for the last N days |
+
+### stdio transport — local / Claude Desktop
+
+Runs the MCP server as a subprocess. No auth is applied. Suitable for local development and single-user Claude Desktop setups where PULSAR runs on the same machine.
+
+Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "pulsar": {
+      "command": "python",
+      "args": ["/path/to/pulsar/backend/mcp_server.py"],
+      "env": {
+        "MONGO_URI": "mongodb://root:example@localhost:27017"
+      }
+    }
+  }
+}
+```
+
+### SSE transport — remote / production
+
+The MCP SSE endpoint is mounted at `/mcp/sse`. Auth is enforced by the `_McpAuthMiddleware` in `backend/routes/mcp.py`.
+
+**Auth options (in priority order):**
+
+| Method | When to use |
+|--------|-------------|
+| `MCP_API_KEY` | Claude Desktop (remote), AURORA service-to-service, any non-human caller |
+| Entra ID JWT (`AUTH_ENABLED=true`) | Human users or systems that already have an Entra token |
+| Neither set | Development / internal-only deployments with network-level protection |
+
+#### Option A — API key (recommended for Claude Desktop and AURORA)
+
+Generate a key:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Set `MCP_API_KEY=<generated-key>` in your `.env` or container environment.
+
+Claude Desktop config:
+```json
+{
+  "mcpServers": {
+    "pulsar": {
+      "url": "https://pulsar.yourtenant.example/mcp/sse",
+      "headers": {
+        "Authorization": "Bearer <your-mcp-api-key>"
+      }
+    }
+  }
+}
+```
+
+The `x-api-key: <key>` header is also accepted as an alternative.
+
+#### Option B — Entra ID (enterprise, human users)
+
+Set `AUTH_ENABLED=true` and the Entra variables in `.env`. For Claude Desktop to discover the auth endpoints automatically, also set `MCP_CLIENT_ID` — this activates the `/.well-known/oauth-authorization-server` discovery endpoint (RFC 8414).
+
+```json
+{
+  "mcpServers": {
+    "pulsar": {
+      "url": "https://pulsar.yourtenant.example/mcp/sse"
+    }
+  }
+}
+```
+
+With the discovery endpoint active, Claude Desktop will initiate the OAuth flow automatically.
+
+Both `MCP_API_KEY` and `AUTH_ENABLED` can be active simultaneously — service clients use the key, human users use Entra.
 
 ## Development
 
