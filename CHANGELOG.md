@@ -2,6 +2,12 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.2.2] — 2026-06-03
+
+### Fixed
+
+- **Docker image: single gunicorn worker** — Reduced workers from 2 to 1. FastMCP's SSE transport stores sessions in-memory per process; with multiple workers, `POST /mcp/messages/` would round-robin across processes and hit "session not found" 404s. A single worker avoids this without requiring Redis-backed session storage. FastAPI is async/I-O-bound, so one worker handles all concurrency via the event loop.
+
 ## [1.2.1] — 2026-06-03
 
 ### Fixed

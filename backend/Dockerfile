@@ -21,11 +21,19 @@ RUN mkdir -p /app/data && chown -R pulsar:pulsar /app
 
 USER pulsar
 
-# Production: use gunicorn with uvicorn workers
-# Workers = 2-4 x $NUM_CORES; keep it conservative for containerised workloads
+# Single worker — intentional.
+#
+# PULSAR is async (FastAPI + uvicorn): a single worker handles all concurrency
+# via the event loop, making multiple workers unnecessary for an I/O-bound app.
+#
+# More importantly, the MCP SSE transport stores sessions in-memory per process.
+# Multiple workers would round-robin POST /mcp/messages/ across processes,
+# causing "session not found" 404s when a request lands on a different worker
+# than the one that opened the SSE stream.  A single worker avoids this entirely
+# without requiring Redis-backed session storage.
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8000
 
-CMD ["gunicorn", "main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-"]
+CMD ["gunicorn", "main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-"]
