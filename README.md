@@ -156,6 +156,16 @@ The MCP SSE endpoint is mounted at `/mcp/sse`. Auth is enforced by the `_McpAuth
 | Entra ID JWT (`AUTH_ENABLED=true`) | Human users or systems that already have an Entra token |
 | Neither set | Development / internal-only deployments with network-level protection |
 
+**Reverse proxy / DNS rebinding protection**
+
+When PULSAR runs behind a reverse proxy, FastMCP's SSE transport rejects requests whose `Host` header does not match the allowed list. Set `MCP_ALLOWED_HOSTS` to your public hostname(s) so the MCP endpoint remains reachable:
+
+```bash
+MCP_ALLOWED_HOSTS=pulsar.yourtenant.example
+```
+
+Comma-separated values are supported. Loopback addresses (`localhost`, `127.0.0.1`, `[::1]`) are always permitted.
+
 #### Option A — API key (recommended for Claude Desktop and AURORA)
 
 Generate a key:

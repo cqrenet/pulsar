@@ -31,6 +31,7 @@ PULSAR handles sensitive audit data and admin credentials. It must always be acc
    ```bash
    cp .env.example .env
    # Fill in TENANT_ID, CLIENT_ID, CLIENT_SECRET and any optional settings
+   # If using the MCP SSE endpoint behind a reverse proxy, also set MCP_ALLOWED_HOSTS
    ```
 
 3. **Deploy**

@@ -172,22 +172,43 @@ if ($userImpScope) {
 }
 
 # ---------------------------------------------------------------------------
-# Configure as a public client — enables PKCE (Claude Desktop, Cursor, etc.)
+# Redirect URIs
 #
-# http://localhost (no port) covers all loopback ports per RFC 8252 §8.3.
+# Public client (Mobile and desktop applications platform):
+#   http://localhost — loopback, covers any port per RFC 8252 §8.3.
+#                      Used by Cursor and other local MCP clients.
+#
+# Web platform:
+#   https://claude.ai/api/mcp/auth_callback — Claude Desktop's OAuth callback.
+#                      Claude Desktop completes the auth code flow server-side
+#                      via claude.ai, so this must be a web redirect URI.
 # ---------------------------------------------------------------------------
 
-Write-Host "Configuring public client and redirect URI..." -ForegroundColor Cyan
-$appForRedirects    = Get-MgApplication -ApplicationId $appOid
-$existingRedirects  = $appForRedirects.PublicClient.RedirectUris
-if ($existingRedirects -contains "http://localhost") {
+Write-Host "Configuring redirect URIs..." -ForegroundColor Cyan
+$appForRedirects = Get-MgApplication -ApplicationId $appOid
+
+# Public client (loopback)
+$existingPublicRedirects = $appForRedirects.PublicClient.RedirectUris
+if ($existingPublicRedirects -contains "http://localhost") {
     Write-Host "Loopback redirect URI already registered — skipping." -ForegroundColor Yellow
 } else {
-    $updatedRedirects = @("http://localhost") + ($existingRedirects | Where-Object { $_ -ne "http://localhost" })
+    $updatedPublicRedirects = @("http://localhost") + ($existingPublicRedirects | Where-Object { $_ -ne "http://localhost" })
     Update-MgApplication -ApplicationId $appOid `
         -IsFallbackPublicClient:$true `
-        -PublicClient @{ redirectUris = $updatedRedirects }
-    Write-Host "Public client configured." -ForegroundColor Green
+        -PublicClient @{ redirectUris = $updatedPublicRedirects }
+    Write-Host "Public client (loopback) configured." -ForegroundColor Green
+}
+
+# Web platform (Claude Desktop callback)
+$claudeCallback = "https://claude.ai/api/mcp/auth_callback"
+$existingWebRedirects = $appForRedirects.Web.RedirectUris
+if ($existingWebRedirects -contains $claudeCallback) {
+    Write-Host "Claude Desktop redirect URI already registered — skipping." -ForegroundColor Yellow
+} else {
+    $updatedWebRedirects = @($claudeCallback) + ($existingWebRedirects | Where-Object { $_ -ne $claudeCallback })
+    Update-MgApplication -ApplicationId $appOid `
+        -Web @{ redirectUris = $updatedWebRedirects }
+    Write-Host "Claude Desktop redirect URI registered." -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------

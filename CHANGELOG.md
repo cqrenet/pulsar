@@ -2,6 +2,18 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.2.1] — 2026-06-03
+
+### Fixed
+
+- **MCP SSE DNS rebinding protection** — FastMCP's transport security rejected requests arriving via a reverse proxy because the `Host` header did not match the default loopback allow-list. Added `MCP_ALLOWED_HOSTS` (comma-separated) so operators can declare their public hostname(s). Loopback addresses remain always permitted.
+- **Bootstrap scripts now register Claude Desktop web redirect URI** — `bootstrap-tenant.ps1` and `bootstrap-mcp-auth.ps1` add `https://claude.ai/api/mcp/auth_callback` to the **Web** platform redirect URIs, enabling Claude Desktop's server-side OAuth callback to complete the auth code flow.
+
+### Changed
+
+- `README.md` and `DEPLOY.md` updated with `MCP_ALLOWED_HOSTS` guidance for reverse-proxy deployments.
+- `.env.example` expanded with `MCP_ALLOWED_HOSTS` documentation.
+
 ## [1.2.0] — 2026-06-03
 
 ### Added

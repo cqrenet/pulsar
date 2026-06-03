@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     RATE_LIMIT_REQUESTS: int = 120
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
+    # MCP allowed hosts for DNS rebinding protection.
+    # Comma-separated list of host[:port] values that the MCP SSE transport will accept
+    # in the Host header.  Add your public hostname here when running behind a reverse
+    # proxy (e.g. "pulsar.cqre.net").  Loopback entries are always allowed.
+    MCP_ALLOWED_HOSTS: str = ""
+
     # MCP API key (lightweight alternative / complement to OIDC for MCP SSE access)
     # Accepts the key via Authorization: Bearer <key> or x-api-key header.
     # Works alongside AUTH_ENABLED — either valid Entra token OR matching key is accepted.

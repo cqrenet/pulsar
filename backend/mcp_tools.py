@@ -5,14 +5,34 @@ Imported by both:
   - routes/mcp.py  (SSE transport, mounted in FastAPI with OIDC auth)
 """
 
+import os
+
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp_common import (
     handle_get_event,
     handle_get_summary,
     handle_search_events,
 )
 
-mcp = FastMCP("pulsar")
+# DNS rebinding protection — keep enabled but allow the configured public hostname.
+# Without this, FastMCP defaults host to 127.0.0.1 and only allows loopback Host
+# headers, rejecting any request that arrives via a reverse proxy with the real
+# public hostname (e.g. pulsar.cqre.net).
+#
+# MCP_ALLOWED_HOSTS: comma-separated list of host[:port] values to allow in addition
+# to the standard loopback entries.  Typically the public hostname of your PULSAR
+# instance.  Defaults to empty (loopback only — fine for stdio / local use).
+_extra_hosts = [h.strip() for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+_allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"] + _extra_hosts
+
+mcp = FastMCP(
+    "pulsar",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=_allowed_hosts,
+    ),
+)
 
 
 @mcp.tool()
