@@ -26,16 +26,20 @@ _FORBIDDEN = b"Forbidden"
 
 def _reject(status: int, body: bytes):
     """Return a minimal ASGI send sequence for a plain-text error response."""
+
     async def _send_rejection(send):
-        await send({
-            "type": "http.response.start",
-            "status": status,
-            "headers": [
-                [b"content-type", b"text/plain; charset=utf-8"],
-                [b"content-length", str(len(body)).encode()],
-            ],
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [
+                    [b"content-type", b"text/plain; charset=utf-8"],
+                    [b"content-length", str(len(body)).encode()],
+                ],
+            }
+        )
         await send({"type": "http.response.body", "body": body})
+
     return _send_rejection
 
 

@@ -192,13 +192,13 @@ if _oauth_tenant_id and _oauth_client_id:
 
     _oauth_base = f"https://login.microsoftonline.com/{_oauth_tenant_id}"
     _oauth_metadata = {
-        "issuer":                                f"{_oauth_base}/v2.0",
-        "authorization_endpoint":                f"{_oauth_base}/oauth2/v2.0/authorize",
-        "token_endpoint":                        f"{_oauth_base}/oauth2/v2.0/token",
-        "scopes_supported":                      [f"api://{_oauth_client_id}/user_impersonation", "openid", "profile", "offline_access"],
-        "response_types_supported":              ["code"],
-        "grant_types_supported":                 ["authorization_code", "refresh_token"],
-        "code_challenge_methods_supported":      ["S256"],
+        "issuer": f"{_oauth_base}/v2.0",
+        "authorization_endpoint": f"{_oauth_base}/oauth2/v2.0/authorize",
+        "token_endpoint": f"{_oauth_base}/oauth2/v2.0/token",
+        "scopes_supported": [f"api://{_oauth_client_id}/user_impersonation", "openid", "profile", "offline_access"],
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none"],
     }
 
