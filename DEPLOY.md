@@ -22,7 +22,7 @@ PULSAR handles sensitive audit data and admin credentials. It must always be acc
 1. **Pull the latest release image**
 
    ```bash
-   export PULSAR_VERSION=v1.0.0
+   export PULSAR_VERSION=v1.2.2  # or see VERSION
    docker compose -f docker-compose.prod.yml pull
    ```
 
@@ -122,6 +122,7 @@ For Azure-native deployments, TLS and routing are handled by the platform. No ad
 - [ ] Configure `WEBHOOK_CLIENT_SECRET` to validate Graph webhook notifications
 - [ ] Set `SIEM_ALLOWED_DOMAINS` if using SIEM forwarding
 - [ ] Review `METRICS_ALLOWED_IPS` — defaults to private networks only
+- [ ] Set `MCP_ALLOWED_HOSTS` if exposing the MCP SSE endpoint behind a reverse proxy
 
 ## Azure Key Vault (optional)
 
@@ -140,76 +141,42 @@ To store secrets in Azure Key Vault instead of `.env`:
 
 ## Azure-native deployment
 
-PULSAR is Docker-based and runs anywhere containers run, including inside your Azure tenant. This section covers deploying PULSAR with Azure-managed infrastructure rather than self-hosted MongoDB and Redis.
+PULSAR runs natively on Azure Container Apps with Azure Cache for Redis and either a containerised MongoDB or Cosmos DB for MongoDB as the database. Secrets are managed via Key Vault and a managed identity — no credentials in environment variables.
 
-### Azure Container Apps (recommended for Azure-native)
+For the full step-by-step guide, including the Cosmos DB migration path and custom domain setup, see **[DEPLOY-AZURE.md](DEPLOY-AZURE.md)**.
 
-Azure Container Apps is the most natural fit — it runs containers without managing VMs, scales to zero when idle, and integrates with managed identity for secretless authentication.
+### Quick start (automated)
 
-A minimal setup:
+Run `deploy/bootstrap-tenant.ps1` first to create the Entra app registration, then provision the full Azure stack in one shot:
 
-1. **Provision supporting infrastructure**
-   - Azure Container Apps environment
-   - Azure Cache for Redis (Basic tier is sufficient for rate limiting)
-   - Azure Cosmos DB for MongoDB (see below) or Azure Database for MongoDB (vCore)
-
-2. **Create a managed identity** for the container app and assign it:
-   - `Get` permission on your Key Vault secrets
-   - Reader role on the resource group (if using managed identity for Key Vault)
-
-3. **Deploy the container**
-
-   ```bash
-   az containerapp create \
-     --name pulsar \
-     --resource-group your-rg \
-     --environment your-env \
-     --image ghcr.io/cqrenet/pulsar:latest \
-     --target-port 8000 \
-     --ingress external \
-     --env-vars AZURE_KEY_VAULT_NAME=your-kv TENANT_ID=... CLIENT_ID=... \
-     --system-assigned
-   ```
-
-4. Set `MONGO_URI` and `REDIS_URL` to your Azure-managed connection strings via Key Vault (see Azure Key Vault section above).
-
-> **Note:** Bicep/ARM templates and a fully scripted Azure deployment are planned for a future release. For now, manual provisioning or your own IaC is required.
-
-### CosmosDB for MongoDB
-
-CosmosDB's MongoDB-compatible API works with PULSAR without any code changes — only `MONGO_URI` needs updating. Admin audit log volumes are modest even for large tenants, so the default serverless or low-RU provisioned tier is sufficient for most deployments.
-
-**Connection string:**
-
-```
-MONGO_URI=mongodb://your-account:your-key@your-account.mongo.cosmos.azure.com:10255/?ssl=true&retrywrites=false&maxIdleTimeMS=120000
+```powershell
+.\deploy\bootstrap-azure.ps1 `
+  -KeyVaultName    "kv-pulsar-contoso" `
+  -TenantId        "<TENANT_ID>" `
+  -ClientId        "<CLIENT_ID>" `
+  -ClientSecret    "<CLIENT_SECRET>" `
+  -AuthTenantId    "<TENANT_ID>" `
+  -AuthClientId    "<CLIENT_ID>" `
+  -AuthScope       "api://<CLIENT_ID>/user_impersonation" `
+  -McpClientId     "<CLIENT_ID>" `
+  -McpApiKey       "<MCP_API_KEY>" `
+  -McpAllowedHosts "pulsar.yourdomain.com" `
+  -MongoUri        "<MONGO_URI>"
 ```
 
-The `retrywrites=false` parameter is required — CosmosDB does not support MongoDB retryable writes.
+The script creates the Container Apps environment, Azure Cache for Redis, Key Vault (with all secrets stored as managed identity secret refs), and the PULSAR Container App. Pass a Cosmos DB `mongodb+srv://` connection string to `-MongoUri` for a fully managed database, or a local MongoDB URI to use a containerised instance (see [DEPLOY-AZURE.md](DEPLOY-AZURE.md) for both options).
 
-**Index creation:** PULSAR calls `setup_indexes()` at startup which creates the necessary indexes automatically. No manual index setup needed.
+### Cosmos DB for MongoDB
 
-**Data migration from self-hosted MongoDB:**
+Cosmos DB's MongoDB-compatible API works with PULSAR without code changes — only `MONGO_URI` needs updating. Use a vCore cluster (M30+) for production; the connection string requires `retrywrites=false` and `tls=true`:
 
-```bash
-# Export from existing instance
-mongodump --uri="mongodb://root:password@localhost:27017" --db=micro_soc --out=./dump
-
-# Restore to CosmosDB
-mongorestore --uri="mongodb://your-account:your-key@your-account.mongo.cosmos.azure.com:10255/?ssl=true&retrywrites=false" --db=micro_soc ./dump/micro_soc
+```
+MONGO_URI=mongodb+srv://admin:PASSWORD@cluster.mongocluster.cosmos.azure.com/pulsar?tls=true&retrywrites=false&maxIdleTimeMS=120000
 ```
 
-**Known limitations vs self-hosted MongoDB:**
-- TTL index behaviour differs slightly — test with `RETENTION_DAYS` enabled before relying on it
-- Heavy aggregation queries (e.g. `/api/summary` with large date ranges) consume more RUs than expected; monitor RU consumption during initial deployment
+PULSAR calls `setup_indexes()` at startup — no manual index setup is needed. See [DEPLOY-AZURE.md § Phase 3](DEPLOY-AZURE.md) for migration steps from a self-hosted instance and known behavioural differences.
 
-### Roadmap
-
-The following Azure-native deployment improvements are planned:
-
-- Bicep templates for full Azure deployment (Container Apps + CosmosDB + Key Vault + managed identity)
-- Azure Container Instances deployment option for simpler single-container setups
-- Managed identity authentication to Microsoft Graph (eliminating `CLIENT_SECRET` entirely)
+See [`DEPLOY-AZURE.md`](DEPLOY-AZURE.md) for the full Azure Container Apps guide, including Cosmos DB setup, migration steps, and custom domain configuration.
 
 ## Rollback
 

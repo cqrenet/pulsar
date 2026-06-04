@@ -90,6 +90,7 @@ Before deploying to production:
 - [ ] Configure `WEBHOOK_CLIENT_SECRET` to validate Graph webhook notifications
 - [ ] Set `SIEM_ALLOWED_DOMAINS` if using SIEM forwarding
 - [ ] Review `METRICS_ALLOWED_IPS` — defaults to private networks only
+- [ ] Set `MCP_ALLOWED_HOSTS` if exposing the MCP SSE endpoint behind a reverse proxy
 - [ ] Consider Azure Key Vault instead of `.env` for secrets
 
 ## API Reference
@@ -218,8 +219,8 @@ source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 
 # Lint and format
-ruff check ..
-ruff format ..
+ruff check .
+ruff format .
 
 # Tests
 pytest -q

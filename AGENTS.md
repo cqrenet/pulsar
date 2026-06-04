@@ -19,7 +19,7 @@ It pulls audit data from three Microsoft sources:
 
 Raw events are normalised into a common schema, stored in MongoDB, and made searchable through a FastAPI backend with a vanilla JS/Alpine.js frontend. Optional features include OIDC Bearer auth, rule-based alerting, SIEM forwarding, and an MCP (Model Context Protocol) server for Claude Desktop / Cursor integration.
 
-**Current version:** 1.0.0 (see `VERSION` file).
+**Current version:** see the [`VERSION`](VERSION) file.
 
 ---
 
@@ -120,7 +120,7 @@ pulsar/
 ├── README.md                 # Quick start, API reference, MCP setup
 ├── DEPLOY.md                 # Production deployment guide
 ├── CHANGELOG.md              # Release history
-└── RELEASE_NOTES.md          # v1.0.0 feature summary
+└── RELEASE_NOTES.md          # Latest release highlights and quick reference
 ```
 
 ---
@@ -298,7 +298,7 @@ docker compose up --build
 ### Production (pre-built image)
 
 ```bash
-export PULSAR_VERSION=v1.0.0
+export PULSAR_VERSION=v1.2.2  # or see VERSION
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -365,6 +365,9 @@ Notable optional variables:
 | `WEBHOOK_CLIENT_SECRET` | Validate Microsoft Graph subscription notifications |
 | `PRIVACY_SERVICES` / `PRIVACY_SENSITIVE_OPERATIONS` / `PRIVACY_SERVICE_ROLES` | Role-gated data hiding |
 | `AZURE_KEY_VAULT_NAME` | Load secrets from Azure Key Vault instead of `.env` |
+| `MCP_API_KEY` | API key for the MCP SSE endpoint (alternative/complement to OIDC) |
+| `MCP_CLIENT_ID` | Entra app registration client ID for MCP OAuth discovery |
+| `MCP_ALLOWED_HOSTS` | Comma-separated hostnames allowed by the MCP SSE transport (reverse proxy) |
 
 ---
 
@@ -387,5 +390,5 @@ These are intended to be run manually against the production database when event
 - `README.md` — Quick start, prerequisites, API reference, MCP setup
 - `DEPLOY.md` — Production deployment, reverse proxy configs, Azure-native options, security hardening checklist
 - `CHANGELOG.md` — Release history
-- `RELEASE_NOTES.md` — v1.0.0 feature summary
+- `RELEASE_NOTES.md` — Latest release highlights and quick reference
 - `backend/mappings.yml` — Human-readable labels and summary templates for services/operations
