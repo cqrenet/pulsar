@@ -468,7 +468,7 @@ body {
 
 /* ── Event table ─────────────────────────────────────────────────── */
 .table-wrap {
-  overflow-x: auto;
+  overflow-x: clip;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   margin-top: 10px;

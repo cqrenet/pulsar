@@ -2,6 +2,12 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.2.3] — 2026-06-04
+
+### Fixed
+
+- **Event table horizontal overflow** — Changed `overflow-x: auto` to `overflow-x: clip` on `.table-wrap` to prevent unwanted horizontal scrollbars in the events table.
+
 ## [1.2.2] — 2026-06-03
 
 ### Fixed
