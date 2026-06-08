@@ -2,6 +2,17 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.3.0] — 2026-06-08
+
+### Added
+
+- **Light / dark / auto theme toggle** — New theme selector in the header supports Light, Dark, and Auto (OS preference) modes. Theme preference is persisted in `localStorage`. The CSS uses `data-theme` attributes and `@media (prefers-color-scheme: light)` for the auto mode.
+- **Automatic token refresh** — The frontend now intercepts 401 responses via `apiFetch()` and attempts silent MSAL token re-acquisition before showing a session-expired message. All API calls have been migrated from `fetch()` to `apiFetch()`.
+
+### Fixed
+
+- **Timezone display drift** — Added `_to_utc_iso()` normalisation in `normalize_event()` to ensure all timestamps carry an explicit `Z` UTC suffix. Office 365 Management API omits the suffix, which caused JavaScript's `Date()` to interpret the value as local time for non-UTC users.
+
 ## [1.2.3] — 2026-06-04
 
 ### Fixed

@@ -1,6 +1,33 @@
 import json
+from datetime import UTC
+from datetime import datetime as _datetime
 
 from mapping_loader import get_mapping
+
+
+def _to_utc_iso(ts: str | None) -> str | None:
+    """Normalise a timestamp string to UTC ISO-8601 with a Z suffix.
+
+    Sources disagree: Graph APIs append Z, Office 365 Management API omits it
+    (but the value is still UTC). A timezone-naive string fed to JavaScript's
+    Date() is interpreted as local time, causing display drift for non-UTC users.
+    """
+    if not ts:
+        return ts
+    try:
+        # fromisoformat handles Z (Python 3.11+), +HH:MM offsets, and naive strings.
+        dt = _datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        # If the source had no offset, the replace above won't have matched; the
+        # string is still naive. Treat it as UTC.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        formatted = dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        if formatted.endswith(".000Z"):
+            formatted = formatted[:-5] + "Z"
+        return formatted
+    except ValueError:
+        return ts
+
 
 CATEGORY_LABELS = {
     "ApplicationManagement": "Application",
@@ -189,7 +216,7 @@ def normalize_event(e):
 
     return {
         "id": e.get("id"),
-        "timestamp": e.get("activityDateTime"),
+        "timestamp": _to_utc_iso(e.get("activityDateTime")),
         "service": e.get("category"),
         "operation": e.get("activityDisplayName"),
         "result": e.get("result"),

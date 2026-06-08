@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PULSAR</title>
-  <link rel="stylesheet" href="/style.css?v=20" />
-  <script src="/app.js?v=2"></script>
+  <link rel="stylesheet" href="/style.css?v=21" />
+  <script src="/app.js?v=3"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.12/dist/cdn.min.js" integrity="sha384-pb6hrQvo4s23cEUFtj0CZkzGE3jyK3pj26RIupXXxhSrrcUA/Cn0lZgcCrGH0t6L" crossorigin="anonymous"></script>
   <script src="https://alcdn.msauth.net/browser/2.37.0/js/msal-browser.min.js" integrity="sha384-DUSOaqAzlZRiZxkDi8hL7hXJDZ+X39ZOAYV9ZDx44gUv9pozmcunJH02tjSFLPnW" crossorigin="anonymous"></script>
 </head>
@@ -44,6 +44,25 @@
     <div class="header-spacer"></div>
 
     <span class="header-status" x-show="statusText && activeTab === 'events'" x-text="statusText" aria-live="polite"></span>
+
+    <!-- Theme toggle -->
+    <div class="theme-toggle" @click.outside="showThemeMenu = false">
+      <button class="btn btn--ghost btn--sm theme-toggle__btn" @click="showThemeMenu = !showThemeMenu" :title="'Theme: ' + theme" x-html="themeIcon()"></button>
+      <div class="dropdown-menu theme-toggle__menu" x-show="showThemeMenu">
+        <button :class="{active: theme === 'light'}" @click="setTheme('light')">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"/></svg>
+          Light
+        </button>
+        <button :class="{active: theme === 'dark'}" @click="setTheme('dark')">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M13.5 9.5a5.5 5.5 0 11-7-7 4.5 4.5 0 007 7z"/></svg>
+          Dark
+        </button>
+        <button :class="{active: theme === 'auto'}" @click="setTheme('auto')">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.5"/><path d="M8 3V1M8 15v-2M3 8H1m14 0h-2M4.34 4.34L2.93 2.93m10.14 10.14l-1.41-1.41M4.34 11.66l-1.41 1.41m10.14-10.14l-1.41 1.41"/></svg>
+          Auto
+        </button>
+      </div>
+    </div>
 
     <div class="header-right">
       <template x-if="account">

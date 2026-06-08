@@ -51,8 +51,13 @@ function pulsarApp() {
     ruleEditId: null,
     ruleEdit: { name: '', enabled: true, severity: 'medium', message: '', conditions: [] },
 
+    // Theme
+    theme: 'auto',
+    showThemeMenu: false,
+
 
     async initApp() {
+      this.initTheme();
       await this.loadVersion();
       await this.initAuth();
       this.loadSavedFilters();
@@ -107,9 +112,41 @@ function pulsarApp() {
       this.savePanelState();
     },
 
+    initTheme() {
+      const saved = localStorage.getItem('pulsar_theme');
+      this.theme = ['light', 'dark', 'auto'].includes(saved) ? saved : 'auto';
+      this.applyTheme();
+      // Listen for OS changes in auto mode
+      if (window.matchMedia) {
+        const mql = window.matchMedia('(prefers-color-scheme: light)');
+        mql.addEventListener?.('change', () => { if (this.theme === 'auto') this.applyTheme(); });
+      }
+    },
+
+    setTheme(mode) {
+      this.theme = mode;
+      localStorage.setItem('pulsar_theme', mode);
+      this.applyTheme();
+      this.showThemeMenu = false;
+    },
+
+    applyTheme() {
+      document.documentElement.setAttribute('data-theme', this.theme);
+    },
+
+    themeIcon() {
+      if (this.theme === 'light') {
+        return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"/></svg>';
+      }
+      if (this.theme === 'dark') {
+        return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M13.5 9.5a5.5 5.5 0 11-7-7 4.5 4.5 0 007 7z"/></svg>';
+      }
+      return '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.5"/><path d="M8 3V1M8 15v-2M3 8H1m14 0h-2M4.34 4.34L2.93 2.93m10.14 10.14l-1.41-1.41M4.34 11.66l-1.41 1.41m10.14-10.14l-1.41 1.41"/></svg>';
+    },
+
     async loadVersion() {
       try {
-        const res = await fetch('/api/version');
+        const res = await this.apiFetch('/api/version');
         if (res.ok) {
           const body = await res.json();
           this.appVersion = (body.version || '').replace(/^v/, '');
@@ -119,6 +156,26 @@ function pulsarApp() {
 
     authHeader() {
       return this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {};
+    },
+
+    async apiFetch(url, options = {}) {
+      const res = await window.fetch(url, options);
+      if (res.status === 401 && this.authConfig?.auth_enabled && this.account) {
+        try {
+          const scopes = this.authScopes?.length ? this.authScopes : ['openid', 'profile', 'email'];
+          const msal = await this.msalInstance.acquireTokenSilent({ scopes, account: this.account });
+          const newToken = this.pickToken(msal);
+          if (newToken) {
+            this.accessToken = newToken;
+            return window.fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${newToken}` } });
+          }
+        } catch {}
+        this.accessToken = null;
+        this.account = null;
+        this.updateAuthButtons();
+        this.statusText = 'Your session has expired. Please sign in again.';
+      }
+      return res;
     },
 
     pickToken(res) {
@@ -141,7 +198,7 @@ function pulsarApp() {
 
     async initAuth() {
       try {
-        const res = await fetch('/api/config/auth');
+        const res = await this.apiFetch('/api/config/auth');
         if (!res.ok) {
           console.error('Auth config fetch failed:', res.status, res.statusText);
           this.authConfig = { auth_enabled: false, _error: res.status };
@@ -276,7 +333,7 @@ function pulsarApp() {
       }
 
       try {
-        const res = await fetch(`/api/events?${params.toString()}`, { headers: { Accept: 'application/json', ...this.authHeader() } });
+        const res = await this.apiFetch(`/api/events?${params.toString()}`, { headers: { Accept: 'application/json', ...this.authHeader() } });
         if (!res.ok) throw new Error(`Request failed: ${res.status} ${await res.text()}`);
         const body = await res.json();
         this.events = body.items || [];
@@ -296,7 +353,7 @@ function pulsarApp() {
         return;
       }
       try {
-        const res = await fetch('/api/fetch-audit-logs', { headers: this.authHeader() });
+        const res = await this.apiFetch('/api/fetch-audit-logs', { headers: this.authHeader() });
         if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${await res.text()}`);
         const body = await res.json();
         const errs = Array.isArray(body.errors) && body.errors.length ? `Warnings: ${body.errors.join(' | ')}` : '';
@@ -312,7 +369,7 @@ function pulsarApp() {
     async loadFilterOptions() {
       if (this.authConfig?.auth_enabled && !this.accessToken) return;
       try {
-        const res = await fetch('/api/filter-options', { headers: this.authHeader() });
+        const res = await this.apiFetch('/api/filter-options', { headers: this.authHeader() });
         if (!res.ok) return;
         const opts = await res.json();
         this.options.actors = (opts.actors || []).slice(0, 200);
@@ -337,7 +394,7 @@ function pulsarApp() {
 
     async loadSourceHealth() {
       try {
-        const res = await fetch('/api/source-health', { headers: this.authHeader() });
+        const res = await this.apiFetch('/api/source-health', { headers: this.authHeader() });
         if (!res.ok) return;
         this.sourceHealth = await res.json();
       } catch {}
@@ -345,7 +402,7 @@ function pulsarApp() {
 
     async loadSavedSearches() {
       try {
-        const res = await fetch('/api/saved-searches', { headers: this.authHeader() });
+        const res = await this.apiFetch('/api/saved-searches', { headers: this.authHeader() });
         if (!res.ok) return;
         this.savedSearches = await res.json();
       } catch {}
@@ -355,7 +412,7 @@ function pulsarApp() {
       const name = prompt('Name this saved filter:');
       if (!name || !name.trim()) return;
       try {
-        const res = await fetch('/api/saved-searches', {
+        const res = await this.apiFetch('/api/saved-searches', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...this.authHeader() },
           body: JSON.stringify({ name: name.trim(), filters: { ...this.filters } }),
@@ -385,7 +442,7 @@ function pulsarApp() {
     async deleteSavedSearch(id) {
       if (!confirm('Delete this saved search?')) return;
       try {
-        const res = await fetch(`/api/saved-searches/${id}`, {
+        const res = await this.apiFetch(`/api/saved-searches/${id}`, {
           method: 'DELETE',
           headers: this.authHeader(),
         });
@@ -441,7 +498,7 @@ function pulsarApp() {
 
     async loadAlertSummary() {
       try {
-        const res = await fetch('/api/alerts/summary', { headers: this.authHeader() });
+        const res = await this.apiFetch('/api/alerts/summary', { headers: this.authHeader() });
         if (!res.ok) return;
         const body = await res.json();
         this.alertSummary.total_open = body.total_open || 0;
@@ -459,7 +516,7 @@ function pulsarApp() {
         params.append('page', String(this.alertsPage));
         if (this.alertsFilter.status) params.append('status', this.alertsFilter.status);
         if (this.alertsFilter.severity) params.append('severity', this.alertsFilter.severity);
-        const res = await fetch(`/api/alerts?${params.toString()}`, { headers: this.authHeader() });
+        const res = await this.apiFetch(`/api/alerts?${params.toString()}`, { headers: this.authHeader() });
         if (!res.ok) return;
         const body = await res.json();
         this.alerts = body.items || [];
@@ -469,7 +526,7 @@ function pulsarApp() {
 
     async updateAlertStatus(alertId, status) {
       try {
-        const res = await fetch(`/api/alerts/${alertId}/status`, {
+        const res = await this.apiFetch(`/api/alerts/${alertId}/status`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...this.authHeader() },
           body: JSON.stringify({ status }),
@@ -483,7 +540,7 @@ function pulsarApp() {
 
     async loadRules() {
       try {
-        const res = await fetch('/api/rules', { headers: this.authHeader() });
+        const res = await this.apiFetch('/api/rules', { headers: this.authHeader() });
         if (!res.ok) return;
         this.rules = await res.json();
       } catch {}
@@ -511,7 +568,7 @@ function pulsarApp() {
       try {
         const url = this.ruleEditId ? `/api/rules/${this.ruleEditId}` : '/api/rules';
         const method = this.ruleEditId ? 'PUT' : 'POST';
-        const res = await fetch(url, {
+        const res = await this.apiFetch(url, {
           method,
           headers: { 'Content-Type': 'application/json', ...this.authHeader() },
           body: JSON.stringify(payload),
@@ -528,7 +585,7 @@ function pulsarApp() {
       try {
         const rule = this.rules.find((r) => r.id === ruleId);
         if (!rule) return;
-        const res = await fetch(`/api/rules/${ruleId}`, {
+        const res = await this.apiFetch(`/api/rules/${ruleId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...this.authHeader() },
           body: JSON.stringify({ ...rule, enabled }),
@@ -540,7 +597,7 @@ function pulsarApp() {
     async deleteRule(ruleId) {
       if (!confirm('Delete this rule?')) return;
       try {
-        const res = await fetch(`/api/rules/${ruleId}`, {
+        const res = await this.apiFetch(`/api/rules/${ruleId}`, {
           method: 'DELETE',
           headers: this.authHeader(),
         });
@@ -598,7 +655,7 @@ function pulsarApp() {
       }
       this.statusText = 'Applying bulk tag…';
       try {
-        const res = await fetch(`/api/events/bulk-tags?${params.toString()}`, {
+        const res = await this.apiFetch(`/api/events/bulk-tags?${params.toString()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...this.authHeader() },
           body: JSON.stringify({ tags: [tag.trim()], mode }),
@@ -663,7 +720,7 @@ function pulsarApp() {
       if (!tag.trim()) return;
       const tags = [...(e.tags || []), tag.trim()];
       try {
-        const res = await fetch(`/api/events/${e.id}/tags`, {
+        const res = await this.apiFetch(`/api/events/${e.id}/tags`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', ...this.authHeader() },
           body: JSON.stringify({ tags }),
@@ -675,7 +732,7 @@ function pulsarApp() {
     async addComment(e, text) {
       if (!text.trim()) return;
       try {
-        const res = await fetch(`/api/events/${e.id}/comments`, {
+        const res = await this.apiFetch(`/api/events/${e.id}/comments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...this.authHeader() },
           body: JSON.stringify({ text: text.trim() }),
@@ -767,7 +824,7 @@ function pulsarApp() {
       params.append('page_size', '100');
       if (cursor) params.append('cursor', cursor);
       try {
-        const res = await fetch(`/api/events?${params.toString()}`, {
+        const res = await this.apiFetch(`/api/events?${params.toString()}`, {
           headers: { Accept: 'application/json', ...this.authHeader() },
         });
         if (!res.ok) throw new Error(`${res.status}`);
