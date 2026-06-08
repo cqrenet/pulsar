@@ -230,7 +230,7 @@ The `client` fixture is heavily patched for test isolation:
 
 | File | Coverage |
 |------|----------|
-| `test_api.py` | End-to-end API tests: config, health, metrics, events CRUD, pagination, filters, bulk tags, comments, saved searches, rules, alerts, webhooks, privacy filtering |
+| `test_api.py` | End-to-end API tests: config, health, metrics, events CRUD, pagination, filters (including `correlation_id`), bulk tags, comments, saved searches, rules, alerts, webhooks, privacy filtering |
 | `test_auth.py` | Unit tests for `_allowed()` and `require_auth()` with auth enabled/disabled, JWKS cache reset fixture |
 | `test_event_model.py` | `normalize_event()` and `_make_dedupe_key()` logic |
 | `test_rules.py` | Rule condition matching (`eq`, `neq`, `contains`, `in`, `after_hours`) and `evaluate_event()` alert creation |
@@ -328,7 +328,7 @@ PULSAR expects TLS termination and forwarding from a reverse proxy. Supported op
 
 1. **FastAPI router modularity** — Each domain has its own `APIRouter` mounted in `main.py`.
 2. **Pydantic settings + `.env` driven config** — `config.py` uses `pydantic-settings` with `.env` support and optional Azure Key Vault pre-loading.
-3. **Normalisation pipeline** — Raw events from three different Microsoft APIs are normalised into a single schema via `normalize_event()` before storage.
+3. **Normalisation pipeline** — Raw events from three different Microsoft APIs are normalised into a single schema via `normalize_event()` before storage. Normalised documents include a `correlation_id` field when the source payload provides one (e.g., Microsoft Graph `correlationId`, Office 365 `CorrelationId`).
 4. **Cursor-based pagination** — The events API uses base64-encoded `(timestamp|oid)` cursors, not offset paging.
 5. **Event-driven alerting** — Alert rules are evaluated synchronously during ingestion (`run_fetch` → `evaluate_event`).
 6. **MCP dual transport** — Shared tool handlers (`mcp_common.py`) are exposed via both stdio (`mcp_server.py`) and SSE (`routes/mcp.py`) transports.

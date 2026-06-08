@@ -18,9 +18,10 @@ function pulsarApp() {
     showServiceDropdown: false,
     showExportMenu: false,
 
-    // Entity timeline
+    // Timeline / correlation pivot view
     timelineMode: false,
-    timelineEntity: '',
+    timelineType: '', // 'actor' | 'correlation'
+    timelineTitle: '',
     timelineEvents: [],
     timelineLoading: false,
     timelineNextCursor: null,
@@ -798,10 +799,22 @@ function pulsarApp() {
       return map[service] || '#656d76';
     },
 
-    // ── Entity timeline ────────────────────────────────────────
+    // ── Timeline / correlation pivot ─────────────────────────
     async openTimeline(entity) {
       if (!entity || entity === '—' || entity === 'Unknown actor') return;
-      this.timelineEntity = entity;
+      this.timelineType = 'actor';
+      this.timelineTitle = entity;
+      this.timelineMode = true;
+      this.timelineEvents = [];
+      this.timelineNextCursor = null;
+      this.timelineExpandedId = null;
+      await this.loadTimelineEvents();
+    },
+
+    async openCorrelation(id) {
+      if (!id || id === '—') return;
+      this.timelineType = 'correlation';
+      this.timelineTitle = id;
       this.timelineMode = true;
       this.timelineEvents = [];
       this.timelineNextCursor = null;
@@ -811,7 +824,8 @@ function pulsarApp() {
 
     closeTimeline() {
       this.timelineMode = false;
-      this.timelineEntity = '';
+      this.timelineType = '';
+      this.timelineTitle = '';
       this.timelineEvents = [];
       this.timelineExpandedId = null;
     },
@@ -820,8 +834,12 @@ function pulsarApp() {
       if (this.authConfig?.auth_enabled && !this.accessToken) return;
       this.timelineLoading = true;
       const params = new URLSearchParams();
-      params.append('search', this.timelineEntity);
       params.append('page_size', '100');
+      if (this.timelineType === 'actor') {
+        params.append('search', this.timelineTitle);
+      } else if (this.timelineType === 'correlation') {
+        params.append('correlation_id', this.timelineTitle);
+      }
       if (cursor) params.append('cursor', cursor);
       try {
         const res = await this.apiFetch(`/api/events?${params.toString()}`, {

@@ -36,6 +36,7 @@ def setup_indexes(max_retries: int = 5, delay: float = 2.0):
             events_collection.create_index([("timestamp", DESCENDING)])
             events_collection.create_index([("service", ASCENDING), ("timestamp", DESCENDING)])
             events_collection.create_index("id")
+            events_collection.create_index("correlation_id", sparse=True)
             saved_searches_collection.create_index([("created_by", ASCENDING), ("created_at", DESCENDING)])
             _dedupe_alert_rules()
             db["alert_rules"].create_index("name", unique=True)

@@ -46,9 +46,12 @@ def _build_query(
     include_tags: list[str] | None = None,
     exclude_tags: list[str] | None = None,
     exclude_operations: list[str] | None = None,
+    correlation_id: str | None = None,
 ) -> dict:
     filters = []
 
+    if correlation_id:
+        filters.append({"correlation_id": correlation_id})
     if service:
         filters.append({"service": service})
     if services:
@@ -123,6 +126,7 @@ def list_events(
     start: str | None = None,
     end: str | None = None,
     search: str | None = None,
+    correlation_id: str | None = None,
     cursor: str | None = None,
     page_size: int = Query(default=50, ge=1, le=500),
     include_tags: list[str] | None = Query(default=None),
@@ -140,6 +144,7 @@ def list_events(
         start=start,
         end=end,
         search=search,
+        correlation_id=correlation_id,
         cursor=cursor,
         include_tags=include_tags,
         exclude_tags=exclude_tags,
@@ -210,6 +215,7 @@ def bulk_tags(
     start: str | None = None,
     end: str | None = None,
     search: str | None = None,
+    correlation_id: str | None = None,
     include_tags: list[str] | None = Query(default=None),
     exclude_tags: list[str] | None = Query(default=None),
     user: dict = Depends(require_auth),
@@ -225,6 +231,7 @@ def bulk_tags(
         start=start,
         end=end,
         search=search,
+        correlation_id=correlation_id,
         include_tags=include_tags,
         exclude_tags=exclude_tags,
         exclude_operations=privacy_excluded_ops,

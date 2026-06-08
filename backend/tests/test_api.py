@@ -150,6 +150,38 @@ def test_list_events_filter_by_service(client, mock_events_collection):
     assert data["items"][0]["service"] == "Exchange"
 
 
+def test_list_events_filter_by_correlation_id(client, mock_events_collection):
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-corr-1",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Directory",
+            "operation": "Add user",
+            "result": "success",
+            "actor_display": "Alice",
+            "correlation_id": "corr-123",
+            "raw_text": "",
+        }
+    )
+    mock_events_collection.insert_one(
+        {
+            "id": "evt-corr-2",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "service": "Directory",
+            "operation": "Add group",
+            "result": "success",
+            "actor_display": "Alice",
+            "correlation_id": "corr-456",
+            "raw_text": "",
+        }
+    )
+    response = client.get("/api/events?correlation_id=corr-123")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["items"]) == 1
+    assert data["items"][0]["id"] == "evt-corr-1"
+
+
 def test_list_events_page_size_validation(client):
     response = client.get("/api/events?page_size=0")
     assert response.status_code == 422

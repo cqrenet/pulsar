@@ -163,6 +163,10 @@ def _make_dedupe_key(e: dict, normalized_fields: dict = None) -> str:
 
 
 def normalize_event(e):
+    raw = e.get("raw") or {}
+    correlation_id = (
+        e.get("correlationId") or e.get("CorrelationId") or raw.get("correlationId") or raw.get("CorrelationId")
+    )
     actor = e.get("initiatedBy", {})
     targets = e.get("targetResources", [])
     resolved_actor = e.get("_resolvedActor")
@@ -216,6 +220,7 @@ def normalize_event(e):
 
     return {
         "id": e.get("id"),
+        "correlation_id": correlation_id,
         "timestamp": _to_utc_iso(e.get("activityDateTime")),
         "service": e.get("category"),
         "operation": e.get("activityDisplayName"),

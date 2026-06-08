@@ -2,6 +2,14 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [1.4.0] — 2026-06-08
+
+### Added
+
+- **Correlation ID tracking** — `normalize_event()` now extracts `correlationId` (Microsoft Graph) and `CorrelationId` (Office 365 Management API, from the raw payload) into a new `correlation_id` field. This is indexed in MongoDB and exposed in the API and frontend.
+- **Correlation pivot view** — In the event detail expansion, a "Related by correlation →" button appears when an event has a `correlation_id`. Clicking it opens a timeline-style view of all events sharing that correlation ID, making it easy to trace multi-step operations across services.
+- **Generic timeline view** — The existing actor timeline was refactored into a reusable timeline component that supports both actor-based (`search=`) and correlation-based (`correlation_id=`) filtering.
+
 ## [1.3.0] — 2026-06-08
 
 ### Added

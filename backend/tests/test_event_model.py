@@ -59,3 +59,33 @@ def test_normalize_event_with_resolved_actor():
     out = normalize_event(e)
     assert out["actor_display"] == "MyApp (owners: Owner1)"
     assert out["display_category"] == "Application"
+
+
+def test_normalize_event_extracts_correlation_id_from_graph():
+    e = {
+        "id": "graph-evt",
+        "correlationId": "aaaa-bbbb-cccc",
+        "activityDateTime": "2024-02-01T12:00:00Z",
+        "category": "UserManagement",
+        "activityDisplayName": "Add user",
+        "result": "success",
+        "initiatedBy": {"user": {"id": "u1", "displayName": "Alice", "userPrincipalName": "alice@example.com"}},
+        "targetResources": [],
+    }
+    out = normalize_event(e)
+    assert out["correlation_id"] == "aaaa-bbbb-cccc"
+
+
+def test_normalize_event_extracts_correlation_id_from_unified_audit_raw():
+    e = {
+        "id": "o365-evt",
+        "activityDateTime": "2024-02-01T12:00:00Z",
+        "category": "Exchange",
+        "activityDisplayName": "Update",
+        "result": "success",
+        "initiatedBy": {"user": {"id": "u1", "displayName": "Alice", "userPrincipalName": "alice@example.com"}},
+        "targetResources": [],
+        "raw": {"CorrelationId": "dddd-eeee-ffff"},
+    }
+    out = normalize_event(e)
+    assert out["correlation_id"] == "dddd-eeee-ffff"

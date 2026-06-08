@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class EventItem(BaseModel):
     id: str | None = None
+    correlation_id: str | None = None
     timestamp: str | None = None
     service: str | None = None
     operation: str | None = None
