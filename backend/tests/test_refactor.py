@@ -122,3 +122,24 @@ def test_run_fetch_stores_events_and_loads_rules_once(client, mock_events_collec
     assert result["errors"] == ["Intune: boom"]
     assert mock_events_collection.count_documents({}) == 3
     assert calls == {"load": 1, "eval": 3}
+
+
+def test_siem_forwards_all_events_and_blocks_bad_urls(monkeypatch):
+    import siem
+
+    posted = []
+
+    class Resp:
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(siem, "SIEM_ENABLED", True)
+    monkeypatch.setattr(siem.requests.Session, "post", lambda self, url, json, timeout: posted.append(json) or Resp())
+
+    monkeypatch.setattr(siem, "SIEM_WEBHOOK_URL", "http://siem.example.com/x")  # not https
+    siem.forward_events([{"id": "0"}])
+    assert posted == []
+
+    monkeypatch.setattr(siem, "SIEM_WEBHOOK_URL", "https://siem.example.com/x")
+    siem.forward_events([{"id": str(i)} for i in range(10)])
+    assert sorted(e["id"] for e in posted) == sorted(str(i) for i in range(10))

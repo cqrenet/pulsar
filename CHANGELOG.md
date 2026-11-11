@@ -14,6 +14,7 @@ All notable changes to PULSAR will be documented here.
 - One SSRF validator for alert webhooks and SIEM; `main.py` split into `middleware.py` and `routes/system.py`; startup uses a lifespan handler.
 - Blocking MongoDB calls no longer run on the event loop (summary, saved searches, MCP tools).
 - Frontend split into `js/` parts; the query-string builder, API helpers and download helper are no longer duplicated; bulk tagging asks for `append`/`replace` explicitly; load failures show a status message.
+- SIEM forwarding posts events a few at a time over one connection pool; the Graph token cache is lock-protected.
 - Removed unused code: `arq` and `jobs.py`, `EventItem`, MCP schema constants, `threshold_count` rule operator, unused mapping helpers.
 
 ### Security

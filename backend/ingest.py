@@ -10,7 +10,7 @@ from metrics import track_fetch, track_fetch_duration, track_fetch_error
 from models.event_model import normalize_event
 from pymongo import UpdateOne
 from rules import evaluate_event, load_rules
-from siem import forward_event
+from siem import forward_events
 from sources.intune_audit import fetch_intune_audit
 from sources.unified_audit import fetch_unified_audit
 from utils.common import iso_z, utc_now
@@ -71,7 +71,6 @@ def run_fetch(hours: int = DEFAULT_FETCH_HOURS):
             rules = load_rules()  # once per run, not once per event
             for doc in normalized:
                 evaluate_event(doc, rules)
-        for doc in normalized:
-            forward_event(doc)
+        forward_events(normalized)
 
     return {"stored_events": len(normalized), "errors": errors}

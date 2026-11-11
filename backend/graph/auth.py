@@ -6,6 +6,7 @@ stays on this host and is never sent to Entra.
 
 import base64
 import hashlib
+import threading
 import time
 import uuid
 from functools import cache
@@ -18,6 +19,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 _TOKEN_CACHE = {}
+_token_lock = threading.Lock()  # fetches run in worker threads
 
 
 def _b64url(data: bytes) -> str:
@@ -58,6 +60,11 @@ def client_assertion(token_url: str) -> str:
 def get_access_token(scope: str = "https://graph.microsoft.com/.default"):
     """Request an application token from Microsoft identity platform.
     Tokens are cached and reused until 5 minutes before expiry."""
+    with _token_lock:
+        return _get_access_token_locked(scope)
+
+
+def _get_access_token_locked(scope: str):
     now = time.time()
     cached = _TOKEN_CACHE.get(scope)
     if cached and cached["exp"] > now + 300:
