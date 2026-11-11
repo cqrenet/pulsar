@@ -1,0 +1,123 @@
+# Alert rules seeded at startup (upserted by name). Edit here to change the shipped defaults.
+- name: Failed Conditional Access
+  enabled: true
+  severity: high
+  message: A Conditional Access policy evaluation failed. This may indicate a sign-in risk or policy misconfiguration.
+  conditions:
+  - field: service
+    op: eq
+    value: Directory
+  - field: operation
+    op: contains
+    value: ConditionalAccess
+  - field: result
+    op: neq
+    value: success
+- name: After-Hours Admin Activity
+  enabled: true
+  severity: medium
+  message: A privileged operation was performed outside business hours (09:00–17:00 UTC).
+  conditions:
+  - field: service
+    op: in
+    value:
+    - Directory
+    - UserManagement
+    - GroupManagement
+    - RoleManagement
+  - field: timestamp
+    op: after_hours
+- name: New Application Registration
+  enabled: true
+  severity: medium
+  message: A new application was registered in Entra ID. Review for shadow IT or unauthorized integrations.
+  conditions:
+  - field: service
+    op: eq
+    value: ApplicationManagement
+  - field: operation
+    op: contains
+    value: Add application
+- name: Admin Role Assignment
+  enabled: true
+  severity: high
+  message: A user was assigned an administrative role. Verify this was expected and authorized.
+  conditions:
+  - field: service
+    op: eq
+    value: RoleManagement
+  - field: operation
+    op: contains
+    value: Add member to role
+- name: License Change
+  enabled: true
+  severity: low
+  message: A license was assigned or removed from a user. Monitor for unexpected cost changes.
+  conditions:
+  - field: service
+    op: eq
+    value: License
+- name: Bulk User Deletion
+  enabled: true
+  severity: high
+  message: Multiple users were deleted in a short window. This may indicate a compromised admin account
+    or cleanup activity.
+  conditions:
+  - field: service
+    op: in
+    value:
+    - Directory
+    - UserManagement
+  - field: operation
+    op: contains
+    value: Delete user
+- name: Device Compliance Failure
+  enabled: true
+  severity: medium
+  message: A device failed compliance evaluation. It may no longer meet your organization's security requirements.
+  conditions:
+  - field: service
+    op: eq
+    value: Intune
+  - field: operation
+    op: contains
+    value: compliance
+  - field: result
+    op: neq
+    value: success
+- name: Exchange Transport Rule Change
+  enabled: true
+  severity: high
+  message: An Exchange transport rule was modified. This could affect mail flow or security filtering.
+  conditions:
+  - field: service
+    op: eq
+    value: Exchange
+  - field: operation
+    op: contains
+    value: Transport rule
+- name: Service Principal Credential Added
+  enabled: true
+  severity: high
+  message: A new secret or certificate was added to a service principal. Verify this was expected.
+  conditions:
+  - field: service
+    op: eq
+    value: ApplicationManagement
+  - field: operation
+    op: contains
+    value: Add service principal credentials
+- name: External Sharing Enabled
+  enabled: true
+  severity: medium
+  message: External sharing settings were modified on a SharePoint site or team. Review for data exposure
+    risk.
+  conditions:
+  - field: service
+    op: in
+    value:
+    - SharePoint
+    - Teams
+  - field: operation
+    op: contains
+    value: Sharing

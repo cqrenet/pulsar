@@ -82,7 +82,10 @@ def test_health(client):
 
 
 def test_metrics(client):
-    response = client.get("/metrics", headers={"X-Forwarded-For": "127.0.0.1"})
+    from fastapi.testclient import TestClient
+    from main import app
+
+    response = TestClient(app, client=("10.0.0.5", 50000)).get("/metrics")
     assert response.status_code == 200
     assert "pulsar_request_duration_seconds" in response.text
 
@@ -225,8 +228,10 @@ def test_graph_webhook_validation(client):
     assert response.text == token
 
 
-def test_graph_webhook_notification(client):
+def test_graph_webhook_notification(client, monkeypatch):
     payload = {"value": [{"changeType": "updated", "resource": "auditLogs/directoryAudits", "clientState": "secret"}]}
+    assert client.post("/api/webhooks/graph", json=payload).status_code == 401  # no secret configured: fail closed
+    monkeypatch.setattr("routes.webhooks.WEBHOOK_CLIENT_SECRET", "secret")
     response = client.post("/api/webhooks/graph", json=payload)
     assert response.status_code == 200
     assert response.json()["status"] == "accepted"
@@ -307,11 +312,8 @@ def test_rules_crud(client):
 
 
 def test_privacy_filtering_events_by_operation(client, mock_events_collection, monkeypatch):
-    monkeypatch.setattr("config.PRIVACY_SENSITIVE_OPERATIONS", {"MailItemsAccessed", "Send"})
-    monkeypatch.setattr("routes.events.PRIVACY_SENSITIVE_OPERATIONS", {"MailItemsAccessed", "Send"})
+    monkeypatch.setattr("auth.PRIVACY_SENSITIVE_OPERATIONS", {"MailItemsAccessed", "Send"})
     monkeypatch.setattr("auth.PRIVACY_SERVICE_ROLES", {"SecurityAdmin"})
-    monkeypatch.setattr("auth.user_can_access_privacy_services", lambda claims: False)
-    monkeypatch.setattr("routes.events.user_can_access_privacy_services", lambda claims: False)
 
     mock_events_collection.insert_one(
         {

@@ -1,18 +1,18 @@
-from models.event_model import _make_dedupe_key, normalize_event
+from models.event_model import make_dedupe_key, normalize_event
 
 
-def test_make_dedupe_key_prefers_id_and_category():
+def testmake_dedupe_key_prefers_id_and_category():
     e = {"id": "evt-123", "category": "Directory"}
-    assert _make_dedupe_key(e) == "evt-123|Directory"
+    assert make_dedupe_key(e) == "evt-123|Directory"
 
 
-def test_make_dedupe_key_fallback_without_id():
+def testmake_dedupe_key_fallback_without_id():
     e = {
         "activityDateTime": "2024-01-01T00:00:00Z",
         "category": "Exchange",
         "activityDisplayName": "Update setting",
     }
-    key = _make_dedupe_key(e)
+    key = make_dedupe_key(e)
     assert "2024-01-01T00:00:00Z|Exchange|Update setting" in key
 
 

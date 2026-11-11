@@ -1,8 +1,10 @@
 from contextlib import suppress
 from datetime import datetime, timedelta
 
+from config import TENANT_ID
 from graph.auth import get_access_token
-from utils.http import get_with_retry, post_with_retry
+from utils.common import utc_now
+from utils.http import get_json, get_with_retry, post_with_retry
 
 AUDIT_CONTENT_TYPES = {
     "Audit.Exchange": "Exchange admin audit",
@@ -17,7 +19,7 @@ _API_MAX_LOOKBACK_DAYS = 7
 
 
 def _time_window(hours: int, since: str | None = None):
-    end = datetime.utcnow()
+    end = utc_now().replace(tzinfo=None)  # the Management API wants naive UTC
     earliest_allowed = end - timedelta(days=_API_MAX_LOOKBACK_DAYS)
     max_window_start = end - timedelta(hours=_API_MAX_WINDOW_HOURS)
 
@@ -60,15 +62,10 @@ def _list_content(content_type: str, token: str, tenant_id: str, hours: int, sin
 
 
 def _download_content(content_uri: str, token: str) -> list[dict]:
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        res = get_with_retry(content_uri, headers=headers, timeout=30)
-        res.raise_for_status()
-        return res.json() or []
-    except RuntimeError:
-        raise
-    except Exception as exc:
-        raise RuntimeError(f"Failed to download audit content: {exc}") from exc
+    return (
+        get_json(content_uri, what="download audit content", headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        or []
+    )
 
 
 def fetch_unified_audit(hours: int = 24, since: str | None = None, max_files: int = 50) -> list[dict]:
@@ -78,7 +75,6 @@ def fetch_unified_audit(hours: int = 24, since: str | None = None, max_files: in
     """
     # Need token for manage.office.com
     token = get_access_token("https://manage.office.com/.default")
-    from config import TENANT_ID  # local import to avoid cycles
 
     events = []
 

@@ -10,9 +10,9 @@ new display fields. Example:
 import argparse
 
 from database import events_collection
-from graph.audit_logs import _enrich_events
+from graph.audit_logs import enrich_events
 from graph.auth import get_access_token
-from models.event_model import _make_dedupe_key, normalize_event
+from models.event_model import make_dedupe_key, normalize_event
 from pymongo import UpdateOne
 
 
@@ -32,7 +32,7 @@ def renormalize(limit: int = None, batch_size: int = 200) -> int:
 
     for doc in cursor:
         raw = doc.get("raw") or {}
-        enriched = _enrich_events([raw], token)[0]
+        enriched = enrich_events([raw], token)[0]
         normalized = normalize_event(enriched)
         # Preserve original _id
         normalized.pop("_id", None)
@@ -65,7 +65,7 @@ def dedupe(limit: int = None, batch_size: int = 500) -> int:
     processed = 0
 
     for doc in cursor:
-        key = doc.get("dedupe_key") or _make_dedupe_key(doc.get("raw") or doc)
+        key = doc.get("dedupe_key") or make_dedupe_key(doc.get("raw") or doc)
         if not key:
             continue
         if key in seen:

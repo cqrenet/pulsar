@@ -1,4 +1,5 @@
 from contextlib import suppress
+from time import sleep
 
 import structlog
 from config import DB_NAME, MONGO_URI, RETENTION_DAYS
@@ -9,6 +10,8 @@ db = client[DB_NAME]
 events_collection = db["events"]
 saved_searches_collection = db["saved_searches"]
 alerts_collection = db["alerts"]
+rules_collection = db["alert_rules"]
+watermarks_collection = db["watermarks"]
 logger = structlog.get_logger("pulsar.database")
 
 
@@ -19,17 +22,15 @@ def _dedupe_alert_rules():
             {"$sort": {"_id": ASCENDING}},
             {"$group": {"_id": "$name", "first_id": {"$first": "$_id"}}},
         ]
-        seen = {doc["_id"]: doc["first_id"] for doc in db["alert_rules"].aggregate(pipeline)}
+        seen = {doc["_id"]: doc["first_id"] for doc in rules_collection.aggregate(pipeline)}
         for name, keep_id in seen.items():
-            db["alert_rules"].delete_many({"name": name, "_id": {"$ne": keep_id}})
-    except Exception:
-        pass  # Collection may not exist yet
+            rules_collection.delete_many({"name": name, "_id": {"$ne": keep_id}})
+    except Exception as exc:  # collection may not exist yet
+        logger.debug("Skipped alert rule dedupe", error=str(exc))
 
 
 def setup_indexes(max_retries: int = 5, delay: float = 2.0):
     """Ensure MongoDB indexes exist. Retries on connection errors."""
-    from time import sleep
-
     for attempt in range(1, max_retries + 1):
         try:
             events_collection.create_index("dedupe_key", unique=True, sparse=True)
@@ -39,7 +40,7 @@ def setup_indexes(max_retries: int = 5, delay: float = 2.0):
             events_collection.create_index("correlation_id", sparse=True)
             saved_searches_collection.create_index([("created_by", ASCENDING), ("created_at", DESCENDING)])
             _dedupe_alert_rules()
-            db["alert_rules"].create_index("name", unique=True)
+            rules_collection.create_index("name", unique=True)
             events_collection.create_index(
                 [("actor_display", TEXT), ("raw_text", TEXT), ("operation", TEXT)],
                 name="text_search_index",

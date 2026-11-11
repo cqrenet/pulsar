@@ -1,13 +1,14 @@
 """Alert management endpoints."""
 
-import re
 from typing import Literal
 
-from auth import require_auth
+from audit_trail import log_action
+from auth import apply_privacy_filter, require_auth
 from bson import ObjectId
 from database import alerts_collection
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from utils.common import contains, user_sub
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -28,6 +29,7 @@ def list_alerts(
     rule_name: str = Query(default="", description="Filter by rule name"),
     page_size: int = Query(default=50, ge=1, le=200),
     page: int = Query(default=1, ge=1),
+    user: dict = Depends(require_auth),
 ):
     query = {}
     if status:
@@ -35,7 +37,8 @@ def list_alerts(
     if severity:
         query["severity"] = severity
     if rule_name:
-        query["rule_name"] = {"$regex": re.escape(rule_name), "$options": "i"}
+        query["rule_name"] = contains(rule_name)
+    query = apply_privacy_filter(query, user)
 
     total = alerts_collection.count_documents(query)
     skip = (page - 1) * page_size
@@ -44,38 +47,36 @@ def list_alerts(
 
 
 @router.patch("/alerts/{alert_id}/status")
-def update_alert_status(alert_id: str, body: AlertStatusUpdate):
+def update_alert_status(alert_id: str, body: AlertStatusUpdate, user: dict = Depends(require_auth)):
+    if not ObjectId.is_valid(alert_id):
+        raise HTTPException(status_code=404, detail="Alert not found")
     result = alerts_collection.update_one(
-        {"_id": ObjectId(alert_id)},
+        apply_privacy_filter({"_id": ObjectId(alert_id)}, user),
         {"$set": {"status": body.status}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Alert not found")
+    log_action("update_alert_status", f"/api/alerts/{alert_id}/status", {"status": body.status}, user_sub(user))
     return {"updated": True, "status": body.status}
 
 
 @router.get("/alerts/summary")
-def alert_summary():
-    """Return counts by status and severity for the dashboard."""
+def alert_summary(user: dict = Depends(require_auth)):
+    """Return counts by status and severity for the dashboard (privacy-filtered like the alert list)."""
     pipeline = [
-        {
-            "$group": {
-                "_id": {"status": "$status", "severity": "$severity"},
-                "count": {"$sum": 1},
-            }
-        }
+        {"$match": apply_privacy_filter({}, user)},
+        {"$group": {"_id": {"status": "$status", "severity": "$severity"}, "count": {"$sum": 1}}},
     ]
     by_status_severity = list(alerts_collection.aggregate(pipeline))
-
-    total_open = alerts_collection.count_documents({"status": "open"})
-    total_acknowledged = alerts_collection.count_documents({"status": "acknowledged"})
-    total_resolved = alerts_collection.count_documents({"status": "resolved"})
-    total_false_positive = alerts_collection.count_documents({"status": "false_positive"})
+    by_status: dict[str, int] = {}
+    for row in by_status_severity:
+        status = row["_id"]["status"]
+        by_status[status] = by_status.get(status, 0) + row["count"]
 
     return {
-        "total_open": total_open,
-        "total_acknowledged": total_acknowledged,
-        "total_resolved": total_resolved,
-        "total_false_positive": total_false_positive,
+        "total_open": by_status.get("open", 0),
+        "total_acknowledged": by_status.get("acknowledged", 0),
+        "total_resolved": by_status.get("resolved", 0),
+        "total_false_positive": by_status.get("false_positive", 0),
         "by_status_severity": by_status_severity,
     }

@@ -1,41 +1,23 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from graph.auth import get_access_token
 from graph.resolve import resolve_directory_object, resolve_service_principal_owners
-from utils.http import get_with_retry
+from utils.common import iso_z, utc_now
+from utils.http import fetch_graph_pages
 
 
 def fetch_audit_logs(hours: int = 24, since: str | None = None, max_pages: int = 50):
     """Fetch paginated directory audit logs from Microsoft Graph and enrich with resolved names."""
     token = get_access_token()
-    start_time = since or (datetime.utcnow() - timedelta(hours=hours)).isoformat() + "Z"
-    next_url = f"https://graph.microsoft.com/v1.0/auditLogs/directoryAudits?$filter=activityDateTime ge {start_time}"
-    headers = {"Authorization": f"Bearer {token}"}
-
-    events = []
-    pages_fetched = 0
-
-    while next_url:
-        if pages_fetched >= max_pages:
-            raise RuntimeError(f"Aborting pagination after {max_pages} pages to avoid runaway fetch.")
-
-        try:
-            res = get_with_retry(next_url, headers=headers, timeout=20)
-            res.raise_for_status()
-            body = res.json()
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            raise RuntimeError(f"Failed to fetch audit logs page: {exc}") from exc
-
-        events.extend(body.get("value", []))
-        next_url = body.get("@odata.nextLink")
-        pages_fetched += 1
-
-    return _enrich_events(events, token)
+    start_time = since or iso_z(utc_now() - timedelta(hours=hours))
+    url = f"https://graph.microsoft.com/v1.0/auditLogs/directoryAudits?$filter=activityDateTime ge {start_time}"
+    events = fetch_graph_pages(
+        url, headers={"Authorization": f"Bearer {token}"}, what="directory audit logs", max_pages=max_pages
+    )
+    return enrich_events(events, token)
 
 
-def _enrich_events(events, token):
+def enrich_events(events, token):
     """
     Resolve actor/target IDs to readable names using Graph (requires Directory.Read.All).
     Adds _resolvedActor, _resolvedActorOwners, and per-target _resolved fields.

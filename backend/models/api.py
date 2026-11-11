@@ -1,28 +1,6 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class EventItem(BaseModel):
-    id: str | None = None
-    correlation_id: str | None = None
-    timestamp: str | None = None
-    service: str | None = None
-    operation: str | None = None
-    result: str | None = None
-    actor_display: str | None = None
-    target_displays: list[str] | None = None
-    display_summary: str | None = None
-    display_category: str | None = None
-    dedupe_key: str | None = None
-    actor: dict | None = None
-    targets: list[dict] | None = None
-    raw: dict | None = None
-    raw_text: str | None = None
-    tags: list[str] | None = None
-    comments: list[dict] | None = None
-
-    model_config = ConfigDict(extra="allow")
+from pydantic import BaseModel, Field
 
 
 class PaginatedEventResponse(BaseModel):
@@ -53,12 +31,15 @@ class SourceHealthResponse(BaseModel):
     status: str
 
 
+Tag = Annotated[str, Field(max_length=100)]
+
+
 class TagsUpdateRequest(BaseModel):
-    tags: list[str] = Field(..., max_length=50)
+    tags: list[Tag] = Field(..., max_length=50)
 
 
 class BulkTagsRequest(BaseModel):
-    tags: list[str] = Field(..., max_length=50)
+    tags: list[Tag] = Field(..., max_length=50)
     mode: Literal["append", "replace"] = "append"
 
 
@@ -68,11 +49,11 @@ class CommentAddRequest(BaseModel):
 
 class AlertCondition(BaseModel):
     field: str = Field(..., max_length=100)
-    op: Literal["eq", "neq", "contains", "in", "after_hours", "threshold_count"]
+    op: Literal["eq", "neq", "contains", "in", "after_hours"]
     value: str | list[str] | None = None
 
 
-class AlertRuleResponse(BaseModel):
+class AlertRule(BaseModel):
     id: str | None = None
     name: str = Field(..., max_length=200)
     enabled: bool

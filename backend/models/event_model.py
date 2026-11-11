@@ -1,6 +1,5 @@
 import json
-from datetime import UTC
-from datetime import datetime as _datetime
+from datetime import UTC, datetime
 
 from mapping_loader import get_mapping
 
@@ -16,7 +15,7 @@ def _to_utc_iso(ts: str | None) -> str | None:
         return ts
     try:
         # fromisoformat handles Z (Python 3.11+), +HH:MM offsets, and naive strings.
-        dt = _datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         # If the source had no offset, the replace above won't have matched; the
         # string is still naive. Treat it as UTC.
         if dt.tzinfo is None:
@@ -27,17 +26,6 @@ def _to_utc_iso(ts: str | None) -> str | None:
         return formatted
     except ValueError:
         return ts
-
-
-CATEGORY_LABELS = {
-    "ApplicationManagement": "Application",
-    "UserManagement": "User",
-    "GroupManagement": "Group",
-    "RoleManagement": "Role",
-    "Device": "Device",
-    "Policy": "Policy",
-    "ResourceManagement": "Resource",
-}
 
 
 def _actor_display(actor: dict, resolved: dict = None, owners=None) -> str:
@@ -108,58 +96,46 @@ def _target_types(targets: list) -> list:
     return types
 
 
-def _display_summary(operation: str, target_labels: list, actor_label: str, target_types: list, category: str) -> str:
-    action = operation or category or "Event"
-    target = target_labels[0] if target_labels else None
-    t_type = target_types[0] if target_types else None
-
-    target_piece = None
-    if target and t_type:
-        target_piece = f"{t_type.lower()}: {target}"
-    elif target:
-        target_piece = target
-
-    pieces = [p for p in [action, target_piece] if p]
-    if actor_label:
-        pieces.append(f"by {actor_label}")
-    return " | ".join(pieces)
-
-
-def _render_summary(
-    template: str, operation: str, actor: str, target: str, category: str, result: str, service: str
-) -> str:
+def _render_summary(template: str, **fields) -> str:
+    """Fill a mappings.yml summary template, with readable fallbacks for missing fields."""
+    defaults = {"operation": "Event", "actor": "Unknown actor", "target": "target", "category": "Other"}
+    values = {
+        k: fields.get(k) or defaults.get(k, "")
+        for k in ("operation", "actor", "target", "category", "result", "service")
+    }
     try:
-        return template.format(
-            operation=operation or category or "Event",
-            actor=actor or "Unknown actor",
-            target=target or "target",
-            category=category or "Other",
-            result=result or "",
-            service=service or "",
-        )
+        return template.format(**values)
     except Exception:
         return ""
 
 
-def _make_dedupe_key(e: dict, normalized_fields: dict = None) -> str:
+def make_dedupe_key(e: dict, target: str | None = None) -> str | None:
     """
     Build a stable key to prevent duplicates across sources.
     Preference order:
       - source event id (id) + category
       - fallback to timestamp + category + operation + first target label
+    Accepts a raw source event or a stored document.
     """
-    norm = normalized_fields or {}
-    eid = e.get("id") or e.get("_id") or norm.get("id")
-    ts = e.get("activityDateTime") or e.get("timestamp") or norm.get("timestamp")
-    category = e.get("category") or e.get("service") or norm.get("service")
-    op = e.get("activityDisplayName") or e.get("operation") or norm.get("operation")
-    target_labels = norm.get("target_displays") or []
-    target = target_labels[0] if target_labels else None
-
+    eid = e.get("id") or e.get("_id")
+    category = e.get("category") or e.get("service")
     if eid:
         return "|".join(filter(None, [eid, category]))
-
+    ts = e.get("activityDateTime") or e.get("timestamp")
+    op = e.get("activityDisplayName") or e.get("operation")
     return "|".join(filter(None, [ts, category, op, target])) or None
+
+
+def _display_actor(display_conf: dict, actor: dict, actor_label: str, actor_upn: str | None, first_target: str | None):
+    """Choose the value and label the UI shows in its actor column, per the category's display mapping."""
+    default_label = "Application" if (actor.get("application") or actor.get("app")) else "User"
+    label = display_conf.get("actor_label", default_label)
+    preference = display_conf.get("actor_field", "actor_display")
+    if preference == "actor_upn" and actor_upn:
+        return label, actor_upn
+    if preference == "target_display" and first_target:
+        return label, first_target
+    return label, actor_label
 
 
 def normalize_event(e):
@@ -172,57 +148,38 @@ def normalize_event(e):
     resolved_actor = e.get("_resolvedActor")
     actor_owners = e.get("_resolvedActorOwners", [])
     target_labels = _target_displays(targets)
-    target_types = _target_types(targets)
+    first_target = target_labels[0] if target_labels else None
     actor_label = _actor_display(actor, resolved_actor, actor_owners)
-    actor_upn = (actor.get("user") or {}).get("userPrincipalName") or (actor.get("user") or {}).get("mail")
-    first_target_label = target_labels[0] if target_labels else None
+    actor_user = actor.get("user") or {}
+    actor_upn = actor_user.get("userPrincipalName") or actor_user.get("mail")
     category = e.get("category")
-    mapping = get_mapping()
-    category_labels = mapping.get("category_labels") or {}
-    summary_templates = mapping.get("summary_templates") or {}
-    display_mapping = mapping.get("display") or {}
-    display_category = category_labels.get(category, category or "Other")
 
-    operation = e.get("activityDisplayName")
-    template = summary_templates.get(category) or summary_templates.get("default")
+    mapping = get_mapping()
+    display_category = (mapping.get("category_labels") or {}).get(category, category or "Other")
+    templates = mapping.get("summary_templates") or {}
+    display_mapping = mapping.get("display") or {}
     summary = _render_summary(
-        template,
-        operation=operation,
+        templates.get(category) or templates.get("default"),
+        operation=e.get("activityDisplayName") or display_category,
         actor=actor_label,
-        target=target_labels[0] if target_labels else None,
+        target=first_target,
         category=display_category,
         result=e.get("result"),
-        service=e.get("loggedByService") or e.get("category"),
+        service=e.get("loggedByService") or category,
     )
-
-    display_conf = display_mapping.get(category) or display_mapping.get("default", {})
-    actor_field_pref = display_conf.get("actor_field", "actor_display")
-    default_actor_label = "Application" if (actor.get("application") or actor.get("app")) else "User"
-    actor_label_text = display_conf.get("actor_label", default_actor_label)
-
-    if actor_field_pref == "actor_upn" and actor_upn:
-        display_actor_value = actor_upn
-    elif actor_field_pref == "target_display" and first_target_label:
-        display_actor_value = first_target_label
-    else:
-        display_actor_value = actor_label
-
-    dedupe_key = _make_dedupe_key(
-        e,
-        {
-            "id": e.get("id"),
-            "timestamp": e.get("activityDateTime"),
-            "service": e.get("category"),
-            "operation": e.get("activityDisplayName"),
-            "target_displays": target_labels,
-        },
+    actor_label_text, display_actor_value = _display_actor(
+        display_mapping.get(category) or display_mapping.get("default", {}),
+        actor,
+        actor_label,
+        actor_upn,
+        first_target,
     )
 
     return {
         "id": e.get("id"),
         "correlation_id": correlation_id,
         "timestamp": _to_utc_iso(e.get("activityDateTime")),
-        "service": e.get("category"),
+        "service": category,
         "operation": e.get("activityDisplayName"),
         "result": e.get("result"),
         "actor": actor,
@@ -234,10 +191,10 @@ def normalize_event(e):
         "display_actor_value": display_actor_value,
         "targets": targets,
         "target_displays": target_labels,
-        "target_types": target_types,
+        "target_types": _target_types(targets),
         "display_category": display_category,
         "display_summary": summary,
         "raw": e,
         "raw_text": json.dumps(e, default=str),
-        "dedupe_key": dedupe_key,
+        "dedupe_key": make_dedupe_key(e, first_target),
     }

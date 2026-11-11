@@ -4,37 +4,54 @@ Supported channels:
 - webhook: POST JSON to any URL (Slack, Teams, generic)
 """
 
-import ipaddress
+import re
 from datetime import UTC, datetime
-from urllib.parse import urlparse
+from typing import NamedTuple
 
 import requests
 import structlog
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from utils.ssrf import validate_outbound_url
 
 logger = structlog.get_logger("pulsar.notifications")
 
 WEBHOOK_TIMEOUT = 15
 
 
-def _validate_webhook_url(url: str):
-    """Prevent SSRF by rejecting internal/reserved addresses."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Webhook URL scheme '{parsed.scheme}' is not allowed")
-    hostname = (parsed.hostname or "").lower()
-    if not hostname:
-        raise ValueError("Webhook URL must have a valid hostname")
-    blocked = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254"}
-    if hostname in blocked:
-        raise ValueError(f"Webhook URL hostname '{hostname}' is not allowed")
-    try:
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-            raise ValueError(f"Webhook URL IP '{hostname}' is not allowed")
-    except ValueError as exc:
-        if "not allowed" in str(exc):
-            raise
+def _defang(value) -> str:
+    """Neutralise tenant-controlled text (display names, targets) before it reaches a chat channel.
+
+    Anyone who can rename a device or create a group controls these strings. Without this, a name like
+    "[Verify your account](https://evil.example)" becomes a clickable link posted by the trusted PULSAR bot.
+    URLs are defanged the way SOC tools do it (hxxps[:]//), and markdown link syntax is broken.
+    """
+    text = re.sub(r"(?i)\bhttp(s?)://", r"hxxp\1[:]//", str(value))
+    text = re.sub(r"(?i)\bwww\.", "www[.]", text)
+    return text.replace("](", "] (")
+
+
+def _slack_text(value) -> str:
+    # Slack treats <...> as control sequences (links, @channel); its docs require escaping & < >.
+    return _defang(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+class EventFields(NamedTuple):
+    ts: str
+    op: str
+    actor: str
+    targets: str
+    svc: str
+
+
+def _event_fields(event: dict, clean) -> EventFields:
+    """Event-derived card fields (all tenant-controlled), cleaned for the target channel."""
+    return EventFields(
+        ts=clean(event.get("timestamp", "?")),
+        op=clean(event.get("operation", "unknown")),
+        actor=clean(event.get("actor_display", "unknown")),
+        targets=clean(", ".join(event.get("target_displays", [])) or "—"),
+        svc=clean(event.get("service", "unknown")),
+    )
 
 
 @retry(
@@ -51,11 +68,7 @@ def _post_webhook(url: str, payload: dict) -> requests.Response:
 def _build_slack_payload(rule_name: str, severity: str, message: str, event: dict) -> dict:
     """Build a Slack-compatible block payload."""
     color = {"high": "#ef4444", "medium": "#f97316", "low": "#3b82f6"}.get(severity, "#94a3b8")
-    ts = event.get("timestamp", "?")
-    op = event.get("operation", "unknown")
-    actor = event.get("actor_display", "unknown")
-    targets = ", ".join(event.get("target_displays", [])) or "—"
-    svc = event.get("service", "unknown")
+    f = _event_fields(event, _slack_text)
     return {
         "text": f"[{severity.upper()}] {rule_name}: {message}",
         "attachments": [
@@ -64,11 +77,11 @@ def _build_slack_payload(rule_name: str, severity: str, message: str, event: dic
                 "fields": [
                     {"title": "Rule", "value": rule_name, "short": True},
                     {"title": "Severity", "value": severity.upper(), "short": True},
-                    {"title": "Service", "value": svc, "short": True},
-                    {"title": "Action", "value": op, "short": True},
-                    {"title": "Actor", "value": actor, "short": True},
-                    {"title": "Target", "value": targets, "short": True},
-                    {"title": "Time", "value": ts, "short": False},
+                    {"title": "Service", "value": f.svc, "short": True},
+                    {"title": "Action", "value": f.op, "short": True},
+                    {"title": "Actor", "value": f.actor, "short": True},
+                    {"title": "Target", "value": f.targets, "short": True},
+                    {"title": "Time", "value": f.ts, "short": False},
                 ],
                 "footer": "PULSAR",
             }
@@ -79,11 +92,8 @@ def _build_slack_payload(rule_name: str, severity: str, message: str, event: dic
 def _build_teams_payload(rule_name: str, severity: str, message: str, event: dict) -> dict:
     """Build a Microsoft Teams adaptive card payload."""
     color = {"high": "Attention", "medium": "Warning", "low": "Good"}.get(severity, "Default")
-    ts = event.get("timestamp", "?")
-    op = event.get("operation", "unknown")
-    actor = event.get("actor_display", "unknown")
-    targets = ", ".join(event.get("target_displays", [])) or "—"
-    svc = event.get("service", "unknown")
+    # Adaptive Cards render markdown in FactSet values, so every event field is defanged.
+    f = _event_fields(event, _defang)
     return {
         "type": "message",
         "attachments": [
@@ -105,11 +115,11 @@ def _build_teams_payload(rule_name: str, severity: str, message: str, event: dic
                         {
                             "type": "FactSet",
                             "facts": [
-                                {"title": "Service:", "value": svc},
-                                {"title": "Action:", "value": op},
-                                {"title": "Actor:", "value": actor},
-                                {"title": "Target:", "value": targets},
-                                {"title": "Time:", "value": ts},
+                                {"title": "Service:", "value": f.svc},
+                                {"title": "Action:", "value": f.op},
+                                {"title": "Actor:", "value": f.actor},
+                                {"title": "Target:", "value": f.targets},
+                                {"title": "Time:", "value": f.ts},
                             ],
                         },
                     ],
@@ -165,7 +175,7 @@ def send_notification(
         return False
 
     try:
-        _validate_webhook_url(webhook_url)
+        validate_outbound_url(webhook_url)
     except ValueError as exc:
         logger.warning("Notification blocked: invalid webhook URL", error=str(exc))
         return False

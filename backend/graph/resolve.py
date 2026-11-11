@@ -1,4 +1,14 @@
+import structlog
 from utils.http import get_with_retry
+
+logger = structlog.get_logger("pulsar.resolve")
+
+# Directory object kind -> (payload fields to try in order, label when none is present).
+_NAME_RULES = {
+    "servicePrincipal": (("displayName", "appDisplayName", "appId", "id"), "Unknown app"),
+    "group": (("displayName", "mail", "id"), "Unknown group"),
+    "device": (("displayName", "id"), "Unknown device"),
+}
 
 
 def _name_from_payload(payload: dict, kind: str) -> str:
@@ -9,19 +19,8 @@ def _name_from_payload(payload: dict, kind: str) -> str:
         if display and upn and display != upn:
             return f"{display} ({upn})"
         return display or upn or payload.get("id") or "Unknown user"
-    if kind == "servicePrincipal":
-        return (
-            payload.get("displayName")
-            or payload.get("appDisplayName")
-            or payload.get("appId")
-            or payload.get("id")
-            or "Unknown app"
-        )
-    if kind == "group":
-        return payload.get("displayName") or payload.get("mail") or payload.get("id") or "Unknown group"
-    if kind == "device":
-        return payload.get("displayName") or payload.get("id") or "Unknown device"
-    return payload.get("displayName") or payload.get("id") or "Unknown"
+    fields, fallback = _NAME_RULES.get(kind, (("displayName", "id"), "Unknown"))
+    return next((payload[f] for f in fields if payload.get(f)), fallback)
 
 
 def _request_json(url: str, token: str) -> dict | None:
@@ -31,7 +30,8 @@ def _request_json(url: str, token: str) -> dict | None:
             return None
         res.raise_for_status()
         return res.json()
-    except Exception:
+    except Exception as exc:
+        logger.debug("Graph lookup failed", url=url.split("?")[0], error=str(exc))
         return None
 
 

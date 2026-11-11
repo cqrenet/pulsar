@@ -7,37 +7,56 @@ Deduplication: the same rule firing for the same actor within ALERT_DEDUPE_MINUT
 produces only one alert.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import structlog
+import yaml
 from config import ALERT_DEDUPE_MINUTES, ALERT_WEBHOOK_FORMAT, ALERT_WEBHOOK_URL
-from database import db
-from pymongo import ASCENDING
+from database import alerts_collection, rules_collection
+from notifications import send_notification
+from utils.common import utc_now
 
 logger = structlog.get_logger("pulsar.rules")
-rules_collection = db["alert_rules"]
-alerts_collection = db["alerts"]
+
+DEFAULT_RULES_PATH = Path(__file__).parent / "default_rules.yml"
+
+BUSINESS_HOURS_UTC = range(9, 17)
+
+
+def _after_hours(event_value, _expected) -> bool:
+    try:
+        ts = datetime.fromisoformat(event_value.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return False
+    return ts.hour not in BUSINESS_HOURS_UTC
+
+
+# Condition operators: (event value, rule value) -> matched. Unknown operators never match.
+OPERATORS = {
+    "eq": lambda v, want: v == want,
+    "neq": lambda v, want: v != want,
+    "contains": lambda v, want: isinstance(v, str) and want in v,
+    "in": lambda v, want: v in (want if isinstance(want, list) else [want]),
+    "after_hours": _after_hours,
+}
 
 
 def load_rules() -> list[dict]:
     return list(rules_collection.find({"enabled": True}))
 
 
-def evaluate_event(event: dict) -> list[dict]:
-    """Evaluate a normalized event against stored alert rules."""
+def evaluate_event(event: dict, rules: list[dict] | None = None) -> list[dict]:
+    """Evaluate a normalized event against alert rules. Pass `rules` to avoid reloading them per event."""
     triggered = []
-    rules = load_rules()
-    for rule in rules:
-        if _matches(rule, event):
-            if _is_duplicate(rule, event):
-                logger.debug(
-                    "Alert deduplicated",
-                    rule=rule.get("name"),
-                    event_id=event.get("id"),
-                )
-                continue
-            triggered.append(rule)
-            _create_alert(rule, event)
+    for rule in load_rules() if rules is None else rules:
+        if not _matches(rule, event):
+            continue
+        if _is_duplicate(rule, event):
+            logger.debug("Alert deduplicated", rule=rule.get("name"), event_id=event.get("id"))
+            continue
+        triggered.append(rule)
+        _create_alert(rule, event)
     return triggered
 
 
@@ -45,70 +64,50 @@ def _matches(rule: dict, event: dict) -> bool:
     conditions = rule.get("conditions", [])
     if not conditions:
         return False
-
     for cond in conditions:
-        field = cond.get("field")
-        op = cond.get("op", "eq")
-        value = cond.get("value")
-        event_value = _get_nested(event, field)
-
-        if op == "eq" and event_value != value:
-            return False
-        if op == "neq" and event_value == value:
-            return False
-        if op == "contains" and (not isinstance(event_value, str) or value not in event_value):
-            return False
-        if op == "in" and event_value not in (value if isinstance(value, list) else [value]):
-            return False
-        if op == "after_hours":
-            try:
-                ts = datetime.fromisoformat(event.get("timestamp", "").replace("Z", "+00:00"))
-                hour = ts.hour
-                if 9 <= hour < 17:
-                    return False
-            except Exception:
-                return False
-        if op == "threshold_count":
-            # Threshold rules are evaluated at query time, not per-event
+        operator = OPERATORS.get(cond.get("op", "eq"))
+        event_value = _get_nested(event, cond.get("field") or "")
+        if operator is None or not operator(event_value, cond.get("value")):
             return False
     return True
 
 
 def _get_nested(obj: dict, path: str):
-    parts = path.split(".")
     val = obj
-    for p in parts:
-        if isinstance(val, dict):
-            val = val.get(p)
-        else:
+    for part in path.split("."):
+        if not isinstance(val, dict):
             return None
+        val = val.get(part)
     return val
+
+
+def _actor_of(event: dict) -> str:
+    return event.get("actor_display") or event.get("actor_upn") or "unknown"
 
 
 def _is_duplicate(rule: dict, event: dict) -> bool:
     """Check if an alert for this rule + actor was recently created."""
     if ALERT_DEDUPE_MINUTES <= 0:
         return False
-    cutoff = (datetime.now(UTC) - timedelta(minutes=ALERT_DEDUPE_MINUTES)).isoformat()
-    actor = event.get("actor_display") or event.get("actor_upn") or "unknown"
     query = {
         "rule_id": str(rule.get("_id")),
-        "actor": actor,
-        "timestamp": {"$gte": cutoff},
+        "actor": _actor_of(event),
+        "timestamp": {"$gte": (utc_now() - timedelta(minutes=ALERT_DEDUPE_MINUTES)).isoformat()},
     }
     return alerts_collection.count_documents(query, limit=1) > 0
 
 
 def _create_alert(rule: dict, event: dict):
-    actor = event.get("actor_display") or event.get("actor_upn") or "unknown"
     alert = {
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": utc_now().isoformat(),
         "rule_id": str(rule.get("_id")),
         "rule_name": rule.get("name", "Unnamed rule"),
         "severity": rule.get("severity", "medium"),
         "event_id": event.get("id"),
         "event_dedupe_key": event.get("dedupe_key"),
-        "actor": actor,
+        "service": event.get("service"),  # lets the alert list apply the same privacy filter as events
+        "operation": event.get("operation"),
+        "actor": _actor_of(event),
         "message": rule.get("message", f"Rule '{rule.get('name')}' triggered"),
         "status": "open",  # open | acknowledged | resolved | false_positive
     }
@@ -119,16 +118,13 @@ def _create_alert(rule: dict, event: dict):
         logger.warning("Failed to create alert", error=str(exc))
         return
 
-    # Send notification
     if ALERT_WEBHOOK_URL:
         try:
-            from notifications import send_notification
-
             send_notification(
                 webhook_url=ALERT_WEBHOOK_URL,
                 format_type=ALERT_WEBHOOK_FORMAT,
-                rule_name=rule.get("name", "Unnamed rule"),
-                severity=rule.get("severity", "medium"),
+                rule_name=alert["rule_name"],
+                severity=alert["severity"],
                 message=rule.get("message", ""),
                 event=event,
             )
@@ -137,145 +133,15 @@ def _create_alert(rule: dict, event: dict):
 
 
 def seed_default_rules():
-    """Upsert pre-built PULSAR rule templates. Safe for concurrent startup."""
-    # One-time cleanup: remove duplicates by name, keep the oldest (_id ascending)
-    pipeline = [
-        {"$sort": {"_id": ASCENDING}},
-        {"$group": {"_id": "$name", "first_id": {"$first": "$_id"}}},
-    ]
-    seen = {doc["_id"]: doc["first_id"] for doc in rules_collection.aggregate(pipeline)}
-    for name, keep_id in seen.items():
-        rules_collection.delete_many({"name": name, "_id": {"$ne": keep_id}})
+    """Insert the shipped rule templates that do not exist yet. Safe for concurrent startup.
 
-    defaults = [
-        {
-            "name": "Failed Conditional Access",
-            "enabled": True,
-            "severity": "high",
-            "message": (
-                "A Conditional Access policy evaluation failed. "
-                "This may indicate a sign-in risk or policy misconfiguration."
-            ),
-            "conditions": [
-                {"field": "service", "op": "eq", "value": "Directory"},
-                {"field": "operation", "op": "contains", "value": "ConditionalAccess"},
-                {"field": "result", "op": "neq", "value": "success"},
-            ],
-        },
-        {
-            "name": "After-Hours Admin Activity",
-            "enabled": True,
-            "severity": "medium",
-            "message": "A privileged operation was performed outside business hours (9 AM – 5 PM).",
-            "conditions": [
-                {
-                    "field": "service",
-                    "op": "in",
-                    "value": ["Directory", "UserManagement", "GroupManagement", "RoleManagement"],
-                },
-                {"field": "timestamp", "op": "after_hours"},
-            ],
-        },
-        {
-            "name": "New Application Registration",
-            "enabled": True,
-            "severity": "medium",
-            "message": (
-                "A new application was registered in Entra ID. Review for shadow IT or unauthorized integrations."
-            ),
-            "conditions": [
-                {"field": "service", "op": "eq", "value": "ApplicationManagement"},
-                {"field": "operation", "op": "contains", "value": "Add application"},
-            ],
-        },
-        {
-            "name": "Admin Role Assignment",
-            "enabled": True,
-            "severity": "high",
-            "message": "A user was assigned an administrative role. Verify this was expected and authorized.",
-            "conditions": [
-                {"field": "service", "op": "eq", "value": "RoleManagement"},
-                {"field": "operation", "op": "contains", "value": "Add member to role"},
-            ],
-        },
-        {
-            "name": "License Change",
-            "enabled": True,
-            "severity": "low",
-            "message": "A license was assigned or removed from a user. Monitor for unexpected cost changes.",
-            "conditions": [
-                {"field": "service", "op": "eq", "value": "License"},
-            ],
-        },
-        {
-            "name": "Bulk User Deletion",
-            "enabled": True,
-            "severity": "high",
-            "message": (
-                "Multiple users were deleted in a short window. "
-                "This may indicate a compromised admin account or cleanup activity."
-            ),
-            "conditions": [
-                {"field": "service", "op": "in", "value": ["Directory", "UserManagement"]},
-                {"field": "operation", "op": "contains", "value": "Delete user"},
-            ],
-        },
-        {
-            "name": "Device Compliance Failure",
-            "enabled": True,
-            "severity": "medium",
-            "message": (
-                "A device failed compliance evaluation. "
-                "It may no longer meet your organization's security requirements."
-            ),
-            "conditions": [
-                {"field": "service", "op": "eq", "value": "Intune"},
-                {"field": "operation", "op": "contains", "value": "compliance"},
-                {"field": "result", "op": "neq", "value": "success"},
-            ],
-        },
-        {
-            "name": "Exchange Transport Rule Change",
-            "enabled": True,
-            "severity": "high",
-            "message": "An Exchange transport rule was modified. This could affect mail flow or security filtering.",
-            "conditions": [
-                {"field": "service", "op": "eq", "value": "Exchange"},
-                {"field": "operation", "op": "contains", "value": "Transport rule"},
-            ],
-        },
-        {
-            "name": "Service Principal Credential Added",
-            "enabled": True,
-            "severity": "high",
-            "message": "A new secret or certificate was added to a service principal. Verify this was expected.",
-            "conditions": [
-                {"field": "service", "op": "eq", "value": "ApplicationManagement"},
-                {"field": "operation", "op": "contains", "value": "Add service principal credentials"},
-            ],
-        },
-        {
-            "name": "External Sharing Enabled",
-            "enabled": True,
-            "severity": "medium",
-            "message": (
-                "External sharing settings were modified on a SharePoint site or team. Review for data exposure risk."
-            ),
-            "conditions": [
-                {"field": "service", "op": "in", "value": ["SharePoint", "Teams"]},
-                {"field": "operation", "op": "contains", "value": "Sharing"},
-            ],
-        },
-    ]
-
+    Existing rules are left alone, so an admin's edits (disabled, re-tuned) survive restarts.
+    """
+    defaults = yaml.safe_load(DEFAULT_RULES_PATH.read_text(encoding="utf-8")) or []
     inserted = 0
     for rule in defaults:
         try:
-            result = rules_collection.replace_one(
-                {"name": rule["name"]},
-                rule,
-                upsert=True,
-            )
+            result = rules_collection.update_one({"name": rule["name"]}, {"$setOnInsert": rule}, upsert=True)
             if result.upserted_id:
                 inserted += 1
         except Exception as exc:

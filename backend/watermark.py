@@ -1,6 +1,4 @@
-from database import db
-
-watermarks_collection = db["watermarks"]
+from database import watermarks_collection
 
 
 def get_watermark(source: str) -> str | None:

@@ -1,7 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from graph.auth import get_access_token
-from utils.http import get_with_retry
+from utils.common import iso_z, utc_now
+from utils.http import fetch_graph_pages
 
 
 def fetch_intune_audit(hours: int = 24, since: str | None = None, max_pages: int = 50) -> list[dict]:
@@ -10,28 +11,11 @@ def fetch_intune_audit(hours: int = 24, since: str | None = None, max_pages: int
     Requires Intune audit permissions (e.g., DeviceManagementConfiguration.Read.All).
     """
     token = get_access_token()
-    start_time = since or (datetime.utcnow() - timedelta(hours=hours)).isoformat() + "Z"
+    start_time = since or iso_z(utc_now() - timedelta(hours=hours))
     url = f"https://graph.microsoft.com/v1.0/deviceManagement/auditEvents?$filter=activityDateTime ge {start_time}"
-    headers = {"Authorization": f"Bearer {token}"}
-
-    events = []
-    pages = 0
-    while url:
-        if pages >= max_pages:
-            raise RuntimeError(f"Aborting Intune pagination after {max_pages} pages.")
-        try:
-            res = get_with_retry(url, headers=headers, timeout=20)
-            res.raise_for_status()
-            body = res.json()
-        except RuntimeError:
-            raise
-        except Exception as exc:
-            raise RuntimeError(f"Failed to fetch Intune audit logs: {exc}") from exc
-
-        events.extend(body.get("value", []))
-        url = body.get("@odata.nextLink")
-        pages += 1
-
+    events = fetch_graph_pages(
+        url, headers={"Authorization": f"Bearer {token}"}, what="Intune audit logs", max_pages=max_pages
+    )
     return [_normalize_intune(e) for e in events]
 
 
