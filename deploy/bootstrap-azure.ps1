@@ -1,4 +1,4 @@
-#requires -Version 5.1
+#requires -Version 7.0
 <#
 .SYNOPSIS
     One-shot provisioning of the Azure infrastructure required to run PULSAR on
@@ -19,9 +19,13 @@
     environment variables.
 
     RUN THIS AFTER bootstrap-tenant.ps1
-    bootstrap-tenant.ps1 produces the Entra values (TENANT_ID, CLIENT_ID,
-    CLIENT_SECRET, AUTH_*, MCP_*) that this script expects as parameters.
-    Run it first and have its output ready.
+    bootstrap-tenant.ps1 produces the Entra values (TENANT_ID, CLIENT_ID, AUTH_*, MCP_*)
+    that this script expects as parameters. Run it first and have its output ready.
+
+    INGESTION CERTIFICATE
+    The ingestion app authenticates with a certificate, not a client secret. Pass the PEM file
+    holding its private key and certificate (see bootstrap-tenant.ps1 for the openssl command).
+    It is stored in Key Vault and mounted into the container as a file.
 
     DATABASE
     The script provisions the PULSAR container pointing at a MongoDB connection
@@ -67,22 +71,22 @@
     Entra tenant ID (from bootstrap-tenant.ps1 output).
 
 .PARAMETER ClientId
-    Entra app / client ID (from bootstrap-tenant.ps1 output).
+    Ingestion app client ID (CLIENT_ID from bootstrap-tenant.ps1 output).
 
-.PARAMETER ClientSecret
-    Entra client secret (from bootstrap-tenant.ps1 output).
+.PARAMETER CertificatePemPath
+    PEM file with the ingestion app's private key and certificate.
 
 .PARAMETER AuthTenantId
     AUTH_TENANT_ID — usually the same as TenantId.
 
 .PARAMETER AuthClientId
-    AUTH_CLIENT_ID — usually the same as ClientId.
+    AUTH_CLIENT_ID — the API app's client ID (not the ingestion app).
 
 .PARAMETER AuthScope
     AUTH_SCOPE, e.g. api://<clientId>/user_impersonation.
 
 .PARAMETER McpClientId
-    MCP_CLIENT_ID — usually the same as ClientId.
+    MCP_CLIENT_ID — usually the same as AuthClientId.
 
 .PARAMETER McpApiKey
     MCP_API_KEY (from bootstrap-tenant.ps1 output).
@@ -110,8 +114,8 @@
     .\bootstrap-azure.ps1 `
       -KeyVaultName      "kv-pulsar-contoso" `
       -TenantId          "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-      -ClientId          "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
-      -ClientSecret      "your-client-secret" `
+      -ClientId          "iiiiiiii-iiii-iiii-iiii-iiiiiiiiiiii" `
+      -CertificatePemPath ".\pulsar-ingestion.pem" `
       -AuthTenantId      "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
       -AuthClientId      "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
       -AuthScope         "api://yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/user_impersonation" `
@@ -150,7 +154,7 @@ param (
     [string]$ClientId,
 
     [Parameter(Mandatory = $true)]
-    [string]$ClientSecret,
+    [string]$CertificatePemPath,
 
     [Parameter(Mandatory = $true)]
     [string]$AuthTenantId,
@@ -295,7 +299,6 @@ Step "Storing secrets in Key Vault"
 $secrets = @{
     "tenant-id"     = $TenantId
     "client-id"     = $ClientId
-    "client-secret" = $ClientSecret
     "auth-tenant-id"= $AuthTenantId
     "auth-client-id"= $AuthClientId
     "auth-scope"    = $AuthScope
@@ -312,6 +315,9 @@ foreach ($name in $secrets.Keys) {
         --value $secrets[$name] | Out-Null
     OK "  $name"
 }
+# Multi-line PEM: upload from the file rather than as a command-line value.
+az keyvault secret set --vault-name $KeyVaultName --name "client-certificate" --file (Resolve-Path $CertificatePemPath).Path | Out-Null
+OK "  client-certificate"
 
 # ---------------------------------------------------------------------------
 # Managed identity
@@ -378,12 +384,13 @@ if ($caExists) {
         --min-replicas 1 --max-replicas 1 `
         --ingress external --target-port 8000 `
         --user-assigned $identityId `
+        --secret-volume-mount "/mnt/secrets" `
         --secrets `
             mongo-uri=$(KvRef "mongo-uri") `
             redis-url=$(KvRef "redis-url") `
             tenant-id=$(KvRef "tenant-id") `
             client-id=$(KvRef "client-id") `
-            client-secret=$(KvRef "client-secret") `
+            client-certificate=$(KvRef "client-certificate") `
             auth-tenant-id=$(KvRef "auth-tenant-id") `
             auth-client-id=$(KvRef "auth-client-id") `
             auth-scope=$(KvRef "auth-scope") `
@@ -394,8 +401,11 @@ if ($caExists) {
             REDIS_URL=secretref:redis-url `
             TENANT_ID=secretref:tenant-id `
             CLIENT_ID=secretref:client-id `
-            CLIENT_SECRET=secretref:client-secret `
+            CLIENT_CERTIFICATE_PATH=/mnt/secrets/client-certificate `
             AUTH_ENABLED=true `
+            AUTH_ALLOWED_ROLES=PulsarReader,PulsarAdmin `
+            AUTH_ADMIN_ROLES=PulsarAdmin `
+            PRIVACY_SERVICE_ROLES=PulsarPrivacyReader `
             AUTH_TENANT_ID=secretref:auth-tenant-id `
             AUTH_CLIENT_ID=secretref:auth-client-id `
             AUTH_SCOPE=secretref:auth-scope `

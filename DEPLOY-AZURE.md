@@ -37,12 +37,12 @@ Phases 1–4 can be run in one shot using the bootstrap script in `deploy/bootst
 .\deploy\bootstrap-azure.ps1 `
   -KeyVaultName    "kv-pulsar-contoso" `
   -TenantId        "<TENANT_ID>" `
-  -ClientId        "<CLIENT_ID>" `
-  -ClientSecret    "<CLIENT_SECRET>" `
+  -ClientId        "<ingestion app CLIENT_ID>" `
+  -CertificatePemPath ".\pulsar-ingestion.pem" `
   -AuthTenantId    "<TENANT_ID>" `
-  -AuthClientId    "<CLIENT_ID>" `
-  -AuthScope       "api://<CLIENT_ID>/user_impersonation" `
-  -McpClientId     "<CLIENT_ID>" `
+  -AuthClientId    "<API app ID>" `
+  -AuthScope       "api://<API app ID>/user_impersonation" `
+  -McpClientId     "<API app ID>" `
   -McpApiKey       "<MCP_API_KEY>" `
   -McpAllowedHosts "pulsar.yourdomain.com" `
   -MongoUri        "<MONGO_URI>"
@@ -107,7 +107,8 @@ Store all secrets now.  Adjust values to match your `.env`:
 # Entra / M365 credentials
 az keyvault secret set --vault-name kv-pulsar --name tenant-id        --value "<TENANT_ID>"
 az keyvault secret set --vault-name kv-pulsar --name client-id        --value "<CLIENT_ID>"
-az keyvault secret set --vault-name kv-pulsar --name client-secret    --value "<CLIENT_SECRET>"
+# Ingestion certificate: PEM with private key + certificate (see DEPLOY.md), mounted as a file
+az keyvault secret set --vault-name kv-pulsar --name client-certificate --file ./pulsar-ingestion.pem
 
 # Auth (if AUTH_ENABLED=true)
 az keyvault secret set --vault-name kv-pulsar --name auth-tenant-id   --value "<AUTH_TENANT_ID>"
@@ -277,19 +278,20 @@ az containerapp create \
   --min-replicas 1 --max-replicas 1 \
   --ingress external --target-port 8000 \
   --user-assigned $IDENTITY_ID \
+  --secret-volume-mount /mnt/secrets \
   --secrets \
     mongo-uri=keyvaultref:https://kv-pulsar.vault.azure.net/secrets/mongo-uri,identityref:$IDENTITY_ID \
     redis-url=keyvaultref:https://kv-pulsar.vault.azure.net/secrets/redis-url,identityref:$IDENTITY_ID \
     tenant-id=keyvaultref:https://kv-pulsar.vault.azure.net/secrets/tenant-id,identityref:$IDENTITY_ID \
     client-id=keyvaultref:https://kv-pulsar.vault.azure.net/secrets/client-id,identityref:$IDENTITY_ID \
-    client-secret=keyvaultref:https://kv-pulsar.vault.azure.net/secrets/client-secret,identityref:$IDENTITY_ID \
+    client-certificate=keyvaultref:https://kv-pulsar.vault.azure.net/secrets/client-certificate,identityref:$IDENTITY_ID \
     mcp-api-key=keyvaultref:https://kv-pulsar.vault.azure.net/secrets/mcp-api-key,identityref:$IDENTITY_ID \
   --env-vars \
     MONGO_URI=secretref:mongo-uri \
     REDIS_URL=secretref:redis-url \
     TENANT_ID=secretref:tenant-id \
     CLIENT_ID=secretref:client-id \
-    CLIENT_SECRET=secretref:client-secret \
+    CLIENT_CERTIFICATE_PATH=/mnt/secrets/client-certificate \
     MCP_API_KEY=secretref:mcp-api-key \
     ENABLE_PERIODIC_FETCH=true \
     FETCH_INTERVAL_MINUTES=60 \

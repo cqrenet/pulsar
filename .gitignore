@@ -54,3 +54,7 @@ redis_data/
 
 # Internal / session files
 memory/
+
+# PULSAR ingestion certificate and private key — never commit
+secrets/
+*.pem

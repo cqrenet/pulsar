@@ -13,10 +13,10 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -27,6 +27,13 @@ jobs:
           docker build ./backend \
             --build-arg VERSION=${{ github.ref_name }} \
             --tag ghcr.io/cqrenet/pulsar:${{ github.ref_name }}
+
+      - name: Scan image with Trivy (blocks the release on fixable HIGH/CRITICAL)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
+            image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --no-progress \
+            ghcr.io/cqrenet/pulsar:${{ github.ref_name }}
 
       - name: Tag as latest
         run: docker tag ghcr.io/cqrenet/pulsar:${{ github.ref_name }} ghcr.io/cqrenet/pulsar:latest

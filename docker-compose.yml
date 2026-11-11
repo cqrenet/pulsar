@@ -1,22 +1,31 @@
+# Development: builds the backend from source. Same users and passwords as production.
+# Required in .env: MONGO_ROOT_USERNAME, MONGO_ROOT_PASSWORD, MONGO_APP_PASSWORD, REDIS_PASSWORD.
+# Ingestion is optional in dev: put the certificate in secrets/pulsar-ingestion.pem to enable it.
 services:
   redis:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:8-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
     container_name: pulsar-redis
     restart: always
+    command: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+    configs:
+      - source: valkey_conf
+        target: /usr/local/etc/valkey/valkey.conf
     # Ports not exposed to host; backend connects via Docker network
     volumes:
       - redis_data:/data
 
   mongo:
-    image: mongo:7
+    image: mongo:7@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
     container_name: pulsar-mongo
     restart: always
     # Ports not exposed to host; backend connects via Docker network
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD in .env}
     volumes:
       - mongo_data:/data/db
+      - ./deploy/mongo-init:/docker-entrypoint-initdb.d:ro
 
   backend:
     build: ./backend
@@ -27,13 +36,22 @@ services:
     env_file:
       - .env
     environment:
-      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:${MONGO_PORT}/
-      REDIS_URL: redis://redis:6379/0
+      MONGO_URI: mongodb://pulsar:${MONGO_APP_PASSWORD}@mongo:27017/?authSource=admin
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CLIENT_CERTIFICATE_PATH: /app/secrets/pulsar-ingestion.pem
+    volumes:
+      - ./secrets:/app/secrets:ro
     depends_on:
       - mongo
       - redis
     ports:
       - "127.0.0.1:8000:8000"
+
+configs:
+  valkey_conf:
+    # Password in a mounted file, not on the command line, where any host user could read it with ps.
+    content: |
+      requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
 
 volumes:
   mongo_data:

@@ -1,94 +1,138 @@
-#requires -Version 5.1
+#requires -Version 7.0
 <#
 .SYNOPSIS
-    One-shot provisioning of the Entra app registration required by PULSAR.
+    Provisions the two Entra app registrations PULSAR needs.
 
 .DESCRIPTION
-    Creates (or updates) a single Entra app registration that covers everything PULSAR needs:
+    PULSAR uses two app registrations, so the credential that can read the whole tenant's audit
+    data is never on the app that users and MCP clients sign in to.
 
-        Outbound — reading M365 audit data
-            Microsoft Graph application permissions (admin consent granted automatically):
-              AuditLog.Read.All
-              DeviceManagementConfiguration.Read.All
+        PULSAR Ingestion  (outbound: reads M365 audit data)
+            Application permissions, admin consent granted:
+              Microsoft Graph:             AuditLog.Read.All, DeviceManagementConfiguration.Read.All
+              Office 365 Management APIs:  ActivityFeed.Read
+            Credential: a certificate. You generate the private key ON THE PULSAR SERVER; this
+            script uploads only the public certificate. No client secret, no redirect URIs,
+            public client flows off.
 
-            Office 365 Management Activity API application permission (admin consent granted):
-              ActivityFeed.Read  — Exchange / SharePoint / Teams audit events
+        PULSAR  (inbound: protects the UI, REST API, and MCP endpoint)
+            Application ID URI api://<clientId>, delegated scope user_impersonation.
+            App roles:  PulsarReader, PulsarAdmin, PulsarPrivacyReader.
+            Assignment required: only users assigned a role can get a token.
+            Redirect URIs: SPA (-PublicUrl), http://localhost (Cursor etc.),
+                           https://claude.ai/api/mcp/auth_callback (Claude Desktop).
+            Public client flows: on. Claude Desktop redeems the code server-side without a secret.
+            This app has no credentials and no application permissions.
 
-            A client secret for PULSAR to authenticate as this app (stored in CLIENT_SECRET).
+    Re-running the script is safe: it only adds what is missing. The certificate is replaced
+    only when you pass -PublicCertificatePath.
 
-        Inbound — protecting the PULSAR UI, REST API, and MCP endpoint
-            Application ID URI: api://<clientId>
-            Delegated scope:    user_impersonation  (requested by browser UI and MCP clients)
-            Public client:      enabled             (PKCE flows for Claude Desktop / Cursor)
-            Redirect URIs:      http://localhost                         (loopback — Cursor etc.)
-                                https://claude.ai/api/mcp/auth_callback (Claude Desktop)
+    BEFORE YOU RUN IT: create the ingestion key and certificate on the PULSAR server
+        mkdir -p secrets && cd secrets
+        openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=PULSAR Ingestion" \
+            -keyout key.pem -out pulsar-ingestion.crt
+        cat key.pem pulsar-ingestion.crt > pulsar-ingestion.pem && rm key.pem
+        sudo chown 10001:10001 pulsar-ingestion.pem && sudo chmod 400 pulsar-ingestion.pem
+    Copy only pulsar-ingestion.crt (the public certificate) to the machine running this script.
 
-    The script outputs the exact lines to copy into your PULSAR .env, replacing the
-    manual "fill in CLIENT_ID / CLIENT_SECRET" step in the deployment guide.
-
-    EXISTING DEPLOYMENTS
-    If you already have PULSAR running with a manually created app registration, use
-    bootstrap-mcp-auth.ps1 instead — it adds only the inbound auth capabilities to
-    your existing app without touching the client secret or Graph permissions.
+    MIGRATING FROM THE OLD SINGLE-APP SETUP
+    Pass -ExistingAppId with your current CLIENT_ID. That app becomes the API app (its client ID
+    and scope stay the same, so users and MCP clients need no changes). Once PULSAR runs with the
+    new ingestion app, run again with -RemoveLegacyCredentials to delete the old client secret
+    and application permissions from it.
 
 .PARAMETER TenantName
     The Microsoft 365 tenant domain, e.g. contoso.onmicrosoft.com.
 
-.PARAMETER AppDisplayName
-    Display name for the app registration.  Default: "PULSAR".
+.PARAMETER PublicUrl
+    PULSAR's public URL, e.g. https://pulsar.contoso.com. Registered as the SPA redirect URI.
+
+.PARAMETER PublicCertificatePath
+    Public certificate (PEM or DER) for the ingestion app. Replaces any certificate already
+    registered on it. Required the first time.
 
 .PARAMETER ExistingAppId
-    App ID of an existing registration to update rather than create a new one.
+    App ID of an existing PULSAR app registration to use as the API app.
 
-.PARAMETER SecretValidityYears
-    How long the client secret should be valid.  Default: 1.
+.PARAMETER RemoveLegacyCredentials
+    Delete client secrets and application permissions from the API app (left over from the
+    single-app setup). Irreversible: run it only after the ingestion app works.
 
 .EXAMPLE
     # New deployment
-    .\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com"
+    .\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com" -PublicUrl "https://pulsar.contoso.com" `
+        -PublicCertificatePath .\pulsar-ingestion.crt
 
 .EXAMPLE
-    # Update an existing registration (e.g. rotate secret, add missing permissions)
-    .\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com" -ExistingAppId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    # Migrate the old single app, then remove its secret once ingestion works
+    .\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com" -ExistingAppId "<CLIENT_ID>" `
+        -PublicCertificatePath .\pulsar-ingestion.crt
+    .\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com" -ExistingAppId "<CLIENT_ID>" -RemoveLegacyCredentials
+
+.EXAMPLE
+    # Rotate the ingestion certificate (create a new one on the server first)
+    .\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com" -PublicCertificatePath .\pulsar-ingestion.crt
 #>
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $true)]
     [string]$TenantName,
 
-    [string]$AppDisplayName = "PULSAR",
+    [string]$PublicUrl = "",
+
+    [string]$PublicCertificatePath = "",
 
     [string]$ExistingAppId = "",
 
-    [int]$SecretValidityYears = 1
+    [string]$ApiAppDisplayName = "PULSAR",
+
+    [string]$IngestionAppDisplayName = "PULSAR Ingestion",
+
+    [switch]$RemoveLegacyCredentials
 )
 
 $ErrorActionPreference = "Stop"
 
+$GraphAppId   = "00000003-0000-0000-c000-000000000000"
+$O365MgmtAppId = "c5393580-f805-4401-95e8-94b7a6ef2fc2"
+
+# App roles on the API app. Map them in .env (see the summary at the end).
+$AppRoleDefinitions = @(
+    @{ Value = "PulsarReader";        DisplayName = "PULSAR Reader";         Description = "Search audit events and triage alerts." },
+    @{ Value = "PulsarAdmin";         DisplayName = "PULSAR Admin";          Description = "Reader access plus managing alert rules and triggering fetches." },
+    @{ Value = "PulsarPrivacyReader"; DisplayName = "PULSAR Privacy Reader"; Description = "See privacy-gated services and operations (PRIVACY_SERVICES)." }
+)
+
 # ---------------------------------------------------------------------------
-# Module bootstrap
+# Module bootstrap and connection
 # ---------------------------------------------------------------------------
 
-function Test-ModuleInstalled {
-    param ([string]$Name)
-    if (-not (Get-Module -ListAvailable -Name $Name | Select-Object -First 1)) {
-        Write-Host "Installing module: $Name" -ForegroundColor Cyan
-        Install-Module $Name -Scope CurrentUser -Force -AllowClobber
+foreach ($name in "Microsoft.Graph.Applications", "Microsoft.Graph.Users", "Microsoft.Graph.Identity.DirectoryManagement") {
+    if (-not (Get-Module -ListAvailable -Name $name | Select-Object -First 1)) {
+        Write-Host "Installing module: $name" -ForegroundColor Cyan
+        Install-Module $name -Scope CurrentUser -Force -AllowClobber
     }
+    Import-Module $name
 }
 
-Test-ModuleInstalled "Microsoft.Graph.Applications"
-Test-ModuleInstalled "Microsoft.Graph.Identity.SignIns"
-Import-Module Microsoft.Graph.Applications
-Import-Module Microsoft.Graph.Identity.SignIns
+if (-not $PublicCertificatePath -and -not $RemoveLegacyCredentials) {
+    Write-Host "No -PublicCertificatePath given: the ingestion certificate will not be changed." -ForegroundColor Yellow
+}
+$newCert = $null
+if ($PublicCertificatePath) {
+    $certFile = (Resolve-Path $PublicCertificatePath).Path
+    if ((Get-Content -Raw $certFile) -match "PRIVATE KEY") {
+        throw "$PublicCertificatePath contains a private key. Pass only the public certificate (.crt); the key stays on the server."
+    }
+    $newCert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList $certFile
+}
 
-# ---------------------------------------------------------------------------
-# Connect and resolve tenant
-# ---------------------------------------------------------------------------
+# @($null) is a one-element array in PowerShell; Graph rejects nulls inside collections.
+function AsArray { param ($Value) return ,@($Value | Where-Object { $_ }) }  # comma: keep 1-item arrays as arrays
 
 Write-Host "Connecting to Microsoft Graph..." -ForegroundColor Cyan
 Connect-MgGraph -TenantId $TenantName `
-    -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All","Directory.Read.All" `
+    -Scopes "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All", "Directory.Read.All" `
     -NoWelcome
 
 $tenant = Get-MgOrganization | Select-Object -First 1
@@ -96,182 +140,118 @@ if (-not $tenant) { throw "Unable to read tenant details. Check your authenticat
 $tenantId = $tenant.Id
 Write-Host "Tenant: $($tenant.DisplayName) ($tenantId)" -ForegroundColor Green
 
+function Get-OrCreateApp {
+    param ([string]$AppId, [string]$DisplayName)
+    if ($AppId) {
+        $app = Get-MgApplication -Filter "appId eq '$AppId'" | Select-Object -First 1
+        if (-not $app) { throw "No app registration found with App ID '$AppId'." }
+    } else {
+        $app = Get-MgApplication -Filter "displayName eq '$DisplayName'" | Select-Object -First 1
+    }
+    if ($app) {
+        Write-Host "Using app registration '$($app.DisplayName)': $($app.AppId)" -ForegroundColor Yellow
+    } else {
+        $app = New-MgApplication -DisplayName $DisplayName -SignInAudience "AzureADMyOrg"
+        Write-Host "Created app registration '$DisplayName': $($app.AppId)" -ForegroundColor Green
+    }
+    $sp = Get-MgServicePrincipal -Filter "appId eq '$($app.AppId)'" | Select-Object -First 1
+    if (-not $sp) { $sp = New-MgServicePrincipal -AppId $app.AppId }
+    return $app, $sp
+}
+
 # ---------------------------------------------------------------------------
-# Resolve required permissions
+# Resolve the application permissions the ingestion app needs
 # ---------------------------------------------------------------------------
 
-# --- Microsoft Graph (resourceAppId: 00000003-0000-0000-c000-000000000000) ---
-$graphSp = Get-MgServicePrincipal -Filter "appId eq '00000003-0000-0000-c000-000000000000'"
+$graphSp = Get-MgServicePrincipal -Filter "appId eq '$GraphAppId'"
 if (-not $graphSp) { throw "Microsoft Graph service principal not found." }
-
-$graphPermissions = @(
-    "AuditLog.Read.All",
-    "DeviceManagementConfiguration.Read.All"
+$graphRoles = @(
+    foreach ($name in "AuditLog.Read.All", "DeviceManagementConfiguration.Read.All") {
+        $role = $graphSp.AppRoles | Where-Object { $_.Value -eq $name } | Select-Object -First 1
+        if ($role) { $role } else { Write-Warning "Graph permission '$name' not found — skipping." }
+    }
 )
 
-$graphRoles = @()
-foreach ($name in $graphPermissions) {
-    $role = $graphSp.AppRoles | Where-Object { $_.Value -eq $name } | Select-Object -First 1
-    if (-not $role) { Write-Warning "Graph permission '$name' not found — skipping." ; continue }
-    $graphRoles += $role
-}
-
-# --- Office 365 Management APIs (resourceAppId: c5393580-f805-4401-95e8-94b7a6ef2fc2) ---
-# Provides ActivityFeed.Read for Exchange / SharePoint / Teams audit events.
-$o365MgmtAppId = "c5393580-f805-4401-95e8-94b7a6ef2fc2"
-$o365Sp = Get-MgServicePrincipal -Filter "appId eq '$o365MgmtAppId'" | Select-Object -First 1
-if (-not $o365Sp) {
-    Write-Warning "Office 365 Management APIs service principal not found in tenant — skipping ActivityFeed.Read."
-    Write-Warning "This is expected on tenants where no app has previously consented to this API."
-    Write-Warning "You can add it manually: App registration → API permissions → Add → APIs my organisation uses → Office 365 Management APIs → ActivityFeed.Read."
-    $o365Roles = @()
+$o365Sp = Get-MgServicePrincipal -Filter "appId eq '$O365MgmtAppId'" | Select-Object -First 1
+$o365Roles = @()
+if ($o365Sp) {
+    $o365Roles = @($o365Sp.AppRoles | Where-Object { $_.Value -eq "ActivityFeed.Read" } | Select-Object -First 1)
 } else {
-    $activityFeedRole = $o365Sp.AppRoles | Where-Object { $_.Value -eq "ActivityFeed.Read" } | Select-Object -First 1
-    if (-not $activityFeedRole) {
-        Write-Warning "ActivityFeed.Read not found on Office 365 Management APIs SP — skipping."
-        $o365Roles = @()
-    } else {
-        $o365Roles = @($activityFeedRole)
-    }
+    Write-Warning "Office 365 Management APIs service principal not found — ActivityFeed.Read must be added manually."
 }
 
-# Build RequiredResourceAccess
 $requiredResourceAccess = @()
-if ($graphRoles.Count -gt 0) {
-    $requiredResourceAccess += @{
-        resourceAppId  = $graphSp.AppId
-        resourceAccess = @($graphRoles | ForEach-Object { @{ id = $_.Id; type = "Role" } })
-    }
+if ($graphRoles.Count) {
+    $requiredResourceAccess += @{ resourceAppId = $GraphAppId; resourceAccess = @($graphRoles | ForEach-Object { @{ id = $_.Id; type = "Role" } }) }
 }
-if ($o365Roles.Count -gt 0) {
-    $requiredResourceAccess += @{
-        resourceAppId  = $o365MgmtAppId
-        resourceAccess = @($o365Roles | ForEach-Object { @{ id = $_.Id; type = "Role" } })
-    }
+if ($o365Roles.Count) {
+    $requiredResourceAccess += @{ resourceAppId = $O365MgmtAppId; resourceAccess = @($o365Roles | ForEach-Object { @{ id = $_.Id; type = "Role" } }) }
 }
 
 # ---------------------------------------------------------------------------
-# Resolve or create the app registration
+# 1. Ingestion app: application permissions + certificate, nothing else
 # ---------------------------------------------------------------------------
 
-if ($ExistingAppId) {
-    $app = Get-MgApplication -Filter "appId eq '$ExistingAppId'" | Select-Object -First 1
-    if (-not $app) { throw "No app registration found with App ID '$ExistingAppId'." }
-    Write-Host "Updating existing app: $($app.DisplayName) ($($app.AppId))" -ForegroundColor Yellow
-} else {
-    $app = Get-MgApplication -Filter "displayName eq '$AppDisplayName'" | Select-Object -First 1
-    if ($app) {
-        Write-Host "Found existing app registration '$AppDisplayName': $($app.AppId)" -ForegroundColor Yellow
-    } else {
-        Write-Host "Creating app registration: $AppDisplayName" -ForegroundColor Cyan
-        $app = New-MgApplication `
-            -DisplayName $AppDisplayName `
-            -SignInAudience "AzureADMyOrg" `
-            -RequiredResourceAccess $requiredResourceAccess
-        Write-Host "Created. App ID: $($app.AppId)" -ForegroundColor Green
-    }
-}
+Write-Host ""
+Write-Host "=== Ingestion app ===" -ForegroundColor Cyan
+$ingestApp, $ingestSp = Get-OrCreateApp -DisplayName $IngestionAppDisplayName
 
-$appId  = $app.AppId
-$appOid = $app.Id
+Update-MgApplication -ApplicationId $ingestApp.Id `
+    -RequiredResourceAccess $requiredResourceAccess `
+    -IsFallbackPublicClient:$false
+Write-Host "Application permissions set; public client flows off." -ForegroundColor Green
 
-# Update permissions on existing app
-if ($ExistingAppId -or ($app.DisplayName -eq $AppDisplayName)) {
-    Update-MgApplication -ApplicationId $appOid -RequiredResourceAccess $requiredResourceAccess
-    Write-Host "API permissions updated." -ForegroundColor Green
-}
-
-# ---------------------------------------------------------------------------
-# Ensure a service principal exists
-# ---------------------------------------------------------------------------
-
-$sp = Get-MgServicePrincipal -Filter "appId eq '$appId'" | Select-Object -First 1
-if (-not $sp) {
-    Write-Host "Creating service principal..." -ForegroundColor Cyan
-    $sp = New-MgServicePrincipal -AppId $appId
-}
-
-# ---------------------------------------------------------------------------
-# Grant admin consent
-# ---------------------------------------------------------------------------
-
-Write-Host "Granting admin consent for Graph permissions..." -ForegroundColor Cyan
-foreach ($role in $graphRoles) {
-    $existing = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id |
-        Where-Object { $_.AppRoleId -eq $role.Id }
-    if (-not $existing) {
-        New-MgServicePrincipalAppRoleAssignment `
-            -ServicePrincipalId $sp.Id `
-            -PrincipalId $sp.Id `
-            -ResourceId $graphSp.Id `
-            -AppRoleId $role.Id | Out-Null
-    }
-}
-Write-Host "Graph admin consent granted." -ForegroundColor Green
-
-if ($o365Roles.Count -gt 0 -and $o365Sp) {
-    Write-Host "Granting admin consent for Office 365 Management APIs..." -ForegroundColor Cyan
-    foreach ($role in $o365Roles) {
-        $existing = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id |
-            Where-Object { $_.AppRoleId -eq $role.Id }
-        if (-not $existing) {
-            New-MgServicePrincipalAppRoleAssignment `
-                -ServicePrincipalId $sp.Id `
-                -PrincipalId $sp.Id `
-                -ResourceId $o365Sp.Id `
-                -AppRoleId $role.Id | Out-Null
+function Grant-AppPermissions {
+    param ($ResourceSp, $Roles)
+    $granted = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $ingestSp.Id
+    foreach ($role in $Roles) {
+        if (-not ($granted | Where-Object { $_.AppRoleId -eq $role.Id -and $_.ResourceId -eq $ResourceSp.Id })) {
+            New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $ingestSp.Id `
+                -PrincipalId $ingestSp.Id -ResourceId $ResourceSp.Id -AppRoleId $role.Id | Out-Null
         }
     }
-    Write-Host "Office 365 Management APIs admin consent granted." -ForegroundColor Green
+}
+Grant-AppPermissions -ResourceSp $graphSp -Roles $graphRoles
+if ($o365Sp) { Grant-AppPermissions -ResourceSp $o365Sp -Roles $o365Roles }
+Write-Host "Admin consent granted." -ForegroundColor Green
+
+if ($newCert) {
+    # Replaces existing certificates: PULSAR fails to fetch until it runs with the matching key.
+    Update-MgApplication -ApplicationId $ingestApp.Id -KeyCredentials @(@{
+        type        = "AsymmetricX509Cert"
+        usage       = "Verify"
+        key         = $newCert.RawData
+        displayName = "PulsarIngestion $($newCert.NotAfter.ToString('yyyy-MM-dd'))"
+    })
+    Write-Host "Certificate uploaded (thumbprint $($newCert.Thumbprint), expires $($newCert.NotAfter.ToString('yyyy-MM-dd')))." -ForegroundColor Green
+}
+
+$ingestCreds = Get-MgApplication -ApplicationId $ingestApp.Id -Property "keyCredentials,passwordCredentials"
+if (-not $ingestCreds.KeyCredentials) {
+    Write-Warning "The ingestion app has no certificate. Re-run with -PublicCertificatePath."
+}
+if ($ingestCreds.PasswordCredentials) {
+    Write-Warning "The ingestion app has client secrets. PULSAR does not use them — delete them in the portal."
 }
 
 # ---------------------------------------------------------------------------
-# Client secret (rotate if already exists under the same display name)
+# 2. API app: scope, app roles, redirect URIs, assignment required
 # ---------------------------------------------------------------------------
 
-$secretDesc   = "PulsarClientSecret"
-$appWithCreds = Get-MgApplication -ApplicationId $appOid -Property "id,passwordCredentials"
-$oldSecrets   = $appWithCreds.PasswordCredentials | Where-Object { $_.DisplayName -eq $secretDesc }
-foreach ($cred in $oldSecrets) {
-    Write-Host "Removing old client secret ($($cred.KeyId))..." -ForegroundColor Yellow
-    Remove-MgApplicationPassword -ApplicationId $appOid -BodyParameter @{ keyId = $cred.KeyId }
-}
+Write-Host ""
+Write-Host "=== API app ===" -ForegroundColor Cyan
+$apiApp, $apiSp = Get-OrCreateApp -AppId $ExistingAppId -DisplayName $ApiAppDisplayName
+$apiApp = Get-MgApplication -ApplicationId $apiApp.Id
+$appIdUri = "api://$($apiApp.AppId)"
 
-Write-Host "Creating client secret (valid $SecretValidityYears year(s))..." -ForegroundColor Cyan
-$secretObj = Add-MgApplicationPassword -ApplicationId $appOid -BodyParameter @{
-    displayName = $secretDesc
-    endDateTime = (Get-Date).AddYears($SecretValidityYears).ToString("o")
-}
-$clientSecret = $secretObj.SecretText
-Write-Host "Client secret created." -ForegroundColor Green
-
-# ---------------------------------------------------------------------------
-# Set Application ID URI (required for api://<clientId>/user_impersonation scope)
-# ---------------------------------------------------------------------------
-
-$appIdUri        = "api://$appId"
-$currentUris     = (Get-MgApplication -ApplicationId $appOid).IdentifierUris
-if ($currentUris -contains $appIdUri) {
-    Write-Host "Application ID URI already set — skipping." -ForegroundColor Yellow
-} else {
-    $updatedUris = @($appIdUri) + ($currentUris | Where-Object { $_ -ne $appIdUri })
-    Update-MgApplication -ApplicationId $appOid -IdentifierUris $updatedUris
+if ($apiApp.IdentifierUris -notcontains $appIdUri) {
+    Update-MgApplication -ApplicationId $apiApp.Id -IdentifierUris (@($appIdUri) + (AsArray $apiApp.IdentifierUris))
     Write-Host "Application ID URI set to $appIdUri." -ForegroundColor Green
 }
 
-# ---------------------------------------------------------------------------
-# Expose delegated scope: user_impersonation
-# ---------------------------------------------------------------------------
-
-$appFull        = Get-MgApplication -ApplicationId $appOid
-$existingScopes = $appFull.Api.Oauth2PermissionScopes
-$userImpScope   = $existingScopes | Where-Object { $_.Value -eq "user_impersonation" } | Select-Object -First 1
-
-if ($userImpScope) {
-    Write-Host "user_impersonation scope already exists — skipping." -ForegroundColor Yellow
-} else {
-    Write-Host "Adding user_impersonation scope..." -ForegroundColor Cyan
-    $newScope = @{
+$scopes = AsArray $apiApp.Api.Oauth2PermissionScopes
+if (-not ($scopes | Where-Object { $_.Value -eq "user_impersonation" })) {
+    $scopes += @{
         Id                      = [System.Guid]::NewGuid().ToString()
         Value                   = "user_impersonation"
         AdminConsentDisplayName = "Access PULSAR"
@@ -281,103 +261,130 @@ if ($userImpScope) {
         IsEnabled               = $true
         Type                    = "User"
     }
-    $updatedScopes = @($newScope)
-    if ($existingScopes) { $updatedScopes += $existingScopes }
-    Update-MgApplication -ApplicationId $appOid -Api @{ oauth2PermissionScopes = $updatedScopes }
-    Write-Host "Scope added." -ForegroundColor Green
+    Update-MgApplication -ApplicationId $apiApp.Id -Api @{ oauth2PermissionScopes = $scopes }
+    Write-Host "Scope user_impersonation added." -ForegroundColor Green
 }
 
-# ---------------------------------------------------------------------------
-# Redirect URIs
-#
-# Public client (Mobile and desktop applications platform):
-#   http://localhost — loopback, covers any port per RFC 8252 §8.3.
-#                      Used by Cursor and other local MCP clients.
-#
-# Web platform:
-#   https://claude.ai/api/mcp/auth_callback — Claude Desktop's OAuth callback.
-#                      Claude Desktop completes the auth code flow server-side
-#                      via claude.ai, so this must be a web redirect URI.
-# ---------------------------------------------------------------------------
-
-$appForRedirects = Get-MgApplication -ApplicationId $appOid
-
-# Public client (loopback)
-$existingPublicRedirects = $appForRedirects.PublicClient.RedirectUris
-if ($existingPublicRedirects -contains "http://localhost") {
-    Write-Host "Loopback redirect URI already registered — skipping." -ForegroundColor Yellow
-} else {
-    $updatedPublicRedirects = @("http://localhost") + ($existingPublicRedirects | Where-Object { $_ -ne "http://localhost" })
-    Update-MgApplication -ApplicationId $appOid `
-        -IsFallbackPublicClient:$true `
-        -PublicClient @{ redirectUris = $updatedPublicRedirects }
-    Write-Host "Public client (loopback) configured." -ForegroundColor Green
+$appRoles = AsArray $apiApp.AppRoles
+$addedRoles = $false
+foreach ($def in $AppRoleDefinitions) {
+    if (-not ($appRoles | Where-Object { $_.Value -eq $def.Value })) {
+        $appRoles += @{
+            Id                 = [System.Guid]::NewGuid().ToString()
+            Value              = $def.Value
+            DisplayName        = $def.DisplayName
+            Description        = $def.Description
+            AllowedMemberTypes = @("User")
+            IsEnabled          = $true
+        }
+        $addedRoles = $true
+    }
+}
+if ($addedRoles) {
+    Update-MgApplication -ApplicationId $apiApp.Id -AppRoles $appRoles
+    Write-Host "App roles added." -ForegroundColor Green
 }
 
-# Web platform (Claude Desktop callback)
+$publicRedirects = AsArray $apiApp.PublicClient.RedirectUris
+if ($publicRedirects -notcontains "http://localhost") { $publicRedirects += "http://localhost" }
+$webRedirects = AsArray $apiApp.Web.RedirectUris
 $claudeCallback = "https://claude.ai/api/mcp/auth_callback"
-$existingWebRedirects = $appForRedirects.Web.RedirectUris
-if ($existingWebRedirects -contains $claudeCallback) {
-    Write-Host "Claude Desktop redirect URI already registered — skipping." -ForegroundColor Yellow
-} else {
-    $updatedWebRedirects = @($claudeCallback) + ($existingWebRedirects | Where-Object { $_ -ne $claudeCallback })
-    Update-MgApplication -ApplicationId $appOid `
-        -Web @{ redirectUris = $updatedWebRedirects }
-    Write-Host "Claude Desktop redirect URI registered." -ForegroundColor Green
+if ($webRedirects -notcontains $claudeCallback) { $webRedirects += $claudeCallback }
+$spaRedirects = AsArray $apiApp.Spa.RedirectUris
+if ($PublicUrl -and ($spaRedirects -notcontains $PublicUrl.TrimEnd("/"))) { $spaRedirects += $PublicUrl.TrimEnd("/") }
+Update-MgApplication -ApplicationId $apiApp.Id `
+    -IsFallbackPublicClient:$true `
+    -PublicClient @{ redirectUris = $publicRedirects } `
+    -Web @{ redirectUris = $webRedirects } `
+    -Spa @{ redirectUris = $spaRedirects }
+Write-Host "Redirect URIs set." -ForegroundColor Green
+
+Update-MgServicePrincipal -ServicePrincipalId $apiSp.Id -AppRoleAssignmentRequired:$true
+Write-Host "Assignment required: only users with a PULSAR role can sign in." -ForegroundColor Green
+
+# Assign the person running this script, so the first admin is not locked out.
+$me = Get-MgUser -UserId (Get-MgContext).Account
+$apiApp = Get-MgApplication -ApplicationId $apiApp.Id  # role IDs are the same on the app and its SP
+$myAssignments = Get-MgUserAppRoleAssignment -UserId $me.Id | Where-Object { $_.ResourceId -eq $apiSp.Id }
+foreach ($value in "PulsarAdmin", "PulsarPrivacyReader") {
+    $role = $apiApp.AppRoles | Where-Object { $_.Value -eq $value }
+    if (-not $role -or ($myAssignments | Where-Object { $_.AppRoleId -eq $role.Id })) { continue }
+    # New roles take a few seconds to reach the service principal; retry until they do.
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            New-MgUserAppRoleAssignment -UserId $me.Id -PrincipalId $me.Id -ResourceId $apiSp.Id -AppRoleId $role.Id | Out-Null
+            break
+        } catch {
+            if ($attempt -ge 6) { throw }
+            Start-Sleep -Seconds 10
+        }
+    }
+    Write-Host "Assigned $value to $($me.UserPrincipalName)." -ForegroundColor Green
+}
+
+# Leftovers from the single-app setup: a secret and app permissions on the app users sign in to.
+$apiCreds = Get-MgApplication -ApplicationId $apiApp.Id -Property "passwordCredentials,keyCredentials,requiredResourceAccess"
+$legacyGrants = @(Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $apiSp.Id |
+    Where-Object { $_.ResourceId -eq $graphSp.Id -or ($o365Sp -and $_.ResourceId -eq $o365Sp.Id) })
+$hasLegacy = $apiCreds.PasswordCredentials -or $apiCreds.KeyCredentials -or $legacyGrants.Count
+
+if ($hasLegacy -and $RemoveLegacyCredentials) {
+    foreach ($cred in $apiCreds.PasswordCredentials) {
+        Remove-MgApplicationPassword -ApplicationId $apiApp.Id -BodyParameter @{ keyId = $cred.KeyId }
+    }
+    if ($apiCreds.KeyCredentials) { Update-MgApplication -ApplicationId $apiApp.Id -KeyCredentials @() }
+    foreach ($grant in $legacyGrants) {
+        Remove-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $apiSp.Id -AppRoleAssignmentId $grant.Id
+    }
+    Update-MgApplication -ApplicationId $apiApp.Id -RequiredResourceAccess @()
+    Write-Host "Removed legacy secrets, certificates and application permissions from the API app." -ForegroundColor Green
+    $hasLegacy = $false
 }
 
 # ---------------------------------------------------------------------------
-# Generate MCP_API_KEY suggestion
+# Summary
 # ---------------------------------------------------------------------------
 
 $suggestedApiKey = [System.Convert]::ToBase64String(
     [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
 ).TrimEnd("=").Replace("+", "-").Replace("/", "_")
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-
 Write-Host ""
 Write-Host "=== Bootstrap complete ===" -ForegroundColor Green
 Write-Host ""
-Write-Host "App:                   $AppDisplayName"
-Write-Host "App ID (client ID):    $appId"
-Write-Host "Application ID URI:    $appIdUri"
-Write-Host "Tenant ID:             $tenantId"
+Write-Host "--- PULSAR .env ---" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "--- Copy these lines into your PULSAR .env ---" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "# Outbound — M365 audit data ingestion"
+Write-Host "# Ingestion app (reads M365 audit data with the certificate in secrets/pulsar-ingestion.pem)"
 Write-Host "TENANT_ID=$tenantId"
-Write-Host "CLIENT_ID=$appId"
-Write-Host "CLIENT_SECRET=$clientSecret"
+Write-Host "CLIENT_ID=$($ingestApp.AppId)"
 Write-Host ""
-Write-Host "# Inbound — protect the UI, REST API, and MCP endpoint"
+Write-Host "# API app (UI, REST API, MCP)"
 Write-Host "AUTH_ENABLED=true"
 Write-Host "AUTH_TENANT_ID=$tenantId"
-Write-Host "AUTH_CLIENT_ID=$appId"
+Write-Host "AUTH_CLIENT_ID=$($apiApp.AppId)"
 Write-Host "AUTH_SCOPE=$appIdUri/user_impersonation"
+Write-Host "AUTH_ALLOWED_ROLES=PulsarReader,PulsarAdmin"
+Write-Host "AUTH_ADMIN_ROLES=PulsarAdmin"
+Write-Host "PRIVACY_SERVICE_ROLES=PulsarPrivacyReader"
+Write-Host "MCP_CLIENT_ID=$($apiApp.AppId)"
+Write-Host "MCP_API_KEY=$suggestedApiKey   # only if you need a key for non-interactive MCP callers"
 Write-Host ""
-Write-Host "# OAuth discovery — enables Claude Desktop to auto-discover Entra auth"
-Write-Host "MCP_CLIENT_ID=$appId"
-Write-Host ""
-Write-Host "# API key — zero-friction alternative for Claude Desktop and service callers"
-Write-Host "MCP_API_KEY=$suggestedApiKey"
-Write-Host ""
-Write-Host "----------------------------------------------" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "IMPORTANT: CLIENT_SECRET is shown only once. Copy it now." -ForegroundColor Yellow
+Write-Host "-------------------" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
-Write-Host "  1. Copy the .env lines above."
-Write-Host "  2. Optionally set AUTH_ALLOWED_ROLES or AUTH_ALLOWED_GROUPS to restrict access."
-Write-Host "  3. Start PULSAR: docker compose -f docker-compose.prod.yml up -d"
-if ($o365Roles.Count -eq 0) {
+Write-Host "  1. Put the lines above in .env on the server (remove any old CLIENT_SECRET line)."
+Write-Host "  2. Assign PULSAR roles to users or groups: Entra admin center > Enterprise applications > $ApiAppDisplayName > Users and groups."
+Write-Host "  3. Restart PULSAR: docker compose -f docker-compose.prod.yml up -d"
+if ($hasLegacy) {
     Write-Host ""
-    Write-Host "  NOTE: ActivityFeed.Read (Office 365 Management APIs) was not added automatically." -ForegroundColor Yellow
-    Write-Host "  Add it manually: App registration → API permissions → Add → APIs my organisation uses"
-    Write-Host "  → Office 365 Management APIs → Application permissions → ActivityFeed.Read → Grant admin consent." -ForegroundColor Yellow
+    Write-Host "  The API app still has a client secret or application permissions from the old single-app setup." -ForegroundColor Yellow
+    Write-Host "  Once PULSAR fetches events with the new ingestion app, remove them:" -ForegroundColor Yellow
+    Write-Host "    .\bootstrap-tenant.ps1 -TenantName `"$TenantName`" -ExistingAppId `"$($apiApp.AppId)`" -RemoveLegacyCredentials" -ForegroundColor Yellow
+}
+if (-not $o365Roles.Count) {
+    Write-Host ""
+    Write-Host "  ActivityFeed.Read was not added. Add it to '$IngestionAppDisplayName' manually:" -ForegroundColor Yellow
+    Write-Host "  API permissions > Add > APIs my organisation uses > Office 365 Management APIs > Application > ActivityFeed.Read, then grant admin consent." -ForegroundColor Yellow
 }
 
 Disconnect-MgGraph | Out-Null

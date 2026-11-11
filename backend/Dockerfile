@@ -1,17 +1,23 @@
-FROM python:3.11-slim
+# Pinned by digest; Dependabot proposes updates.
+FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
 
 # Bake the version into the image at build time
 ARG VERSION=unknown
 ENV VERSION=${VERSION}
 
-# Security: run as non-root
-RUN groupadd -r pulsar && useradd -r -g pulsar pulsar
+# Security: run as non-root. Fixed UID/GID so mounted secrets can be owned by it (chown 10001:10001).
+RUN groupadd -r -g 10001 pulsar && useradd -r -u 10001 -g pulsar pulsar
 
 WORKDIR /app
 
+# Debian security fixes released after the base image was built (CI's Trivy scan fails the build otherwise)
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first for layer caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Hash-locked: every package must match requirements.txt exactly, or the build fails.
+# setuptools ships with the base image but nothing needs it at runtime; it only adds vulnerable vendored code.
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt && pip uninstall -y setuptools
 
 # Copy application code
 COPY . .

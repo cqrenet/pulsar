@@ -18,26 +18,33 @@ PULSAR ingests Microsoft 365 admin audit events into MongoDB and exposes a UI, R
 ## Prerequisites
 
 - Docker Desktop (for the quickest start) or a local MongoDB instance
-- PowerShell 5.1+ for the provisioning script (pre-installed on Windows; `brew install --cask powershell` on macOS)
+- PowerShell 7+ for the provisioning scripts (`winget install Microsoft.PowerShell` on Windows; `brew install --cask powershell` on macOS)
 - An Entra app registration — created by the bootstrap script below
 
 ## Quick Start
 
-**1. Provision the Entra app registration**
+**1. Create the ingestion certificate** (on the machine that will run PULSAR; the private key never leaves it)
 
-```powershell
-.\deploy\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com"
+```bash
+mkdir -p secrets && cd secrets
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=PULSAR Ingestion" -keyout key.pem -out pulsar-ingestion.crt
+cat key.pem pulsar-ingestion.crt > pulsar-ingestion.pem && rm key.pem && cd ..
 ```
 
-The script creates the app registration, assigns the required Graph and Office 365 Management API permissions, grants admin consent, and outputs the exact `.env` lines to copy.
+**2. Provision the Entra app registrations**
 
-**Existing deployment?** If PULSAR is already running with a manually created app registration, use `bootstrap-mcp-auth.ps1` instead — it adds MCP capabilities to your existing app without rotating the client secret or changing permissions.
+```powershell
+.\deploy\bootstrap-tenant.ps1 -TenantName "contoso.onmicrosoft.com" -PublicUrl "http://localhost:8000" `
+    -PublicCertificatePath .\secrets\pulsar-ingestion.crt
+```
 
-**2. Configure and start**
+The script creates two app registrations: **PULSAR Ingestion** (application permissions, authenticated by the certificate's public key) and **PULSAR** (the API that users and MCP clients sign in to, with app roles and assignment required). It grants admin consent, assigns you the admin roles, and prints the exact `.env` lines to copy. Upgrading from the old single-app setup? See [DEPLOY.md](DEPLOY.md#upgrading-from-14x).
+
+**3. Configure and start**
 
 ```bash
 cp .env.example .env
-# Paste the lines printed by the bootstrap script
+# Paste the lines printed by the bootstrap script, and set the passwords (openssl rand -hex 32)
 docker compose up --build
 ```
 
@@ -49,16 +56,23 @@ docker compose up --build
 Copy `.env.example` to `.env` and fill in your credentials. Key settings:
 
 ```bash
-# Required
+# Required: ingestion app (certificate in secrets/pulsar-ingestion.pem)
 TENANT_ID=your-tenant-id
-CLIENT_ID=your-client-id
-CLIENT_SECRET=your-client-secret
+CLIENT_ID=your-ingestion-app-client-id
 
-# Optional: protect the API with Entra OIDC
+# Required (Docker Compose): openssl rand -hex 32
+MONGO_ROOT_PASSWORD=...
+MONGO_APP_PASSWORD=...
+REDIS_PASSWORD=...
+
+# Protect the API with Entra OIDC (the API app)
 AUTH_ENABLED=true
 AUTH_TENANT_ID=your-tenant-id
 AUTH_CLIENT_ID=your-api-client-id
-AUTH_ALLOWED_ROLES=Admins,SecurityOps
+AUTH_SCOPE=api://your-api-client-id/user_impersonation
+AUTH_ALLOWED_ROLES=PulsarReader,PulsarAdmin
+AUTH_ADMIN_ROLES=PulsarAdmin
+PRIVACY_SERVICE_ROLES=PulsarPrivacyReader
 
 # Optional: periodic background fetch
 ENABLE_PERIODIC_FETCH=true
@@ -74,17 +88,18 @@ Instead of storing secrets in `.env`, store them in Azure Key Vault:
 
 | Key Vault secret name        | Environment variable    |
 |------------------------------|------------------------|
-| `pulsar-client-secret`       | `CLIENT_SECRET`         |
 | `pulsar-mongo-uri`           | `MONGO_URI`             |
 | `pulsar-webhook-client-secret` | `WEBHOOK_CLIENT_SECRET` |
 
-Set `AZURE_KEY_VAULT_NAME=your-keyvault-name` and uncomment the Azure identity packages in `backend/requirements.txt`.
+Set `AZURE_KEY_VAULT_NAME=your-keyvault-name`, add `azure-identity` and `azure-keyvault-secrets` to `backend/requirements.in`, and regenerate the lock file (command at the top of that file). The ingestion certificate is a file, not a Key Vault secret here: mount it and set `CLIENT_CERTIFICATE_PATH`.
 
 ## Security Hardening Checklist
 
 Before deploying to production:
 
 - [ ] Set `AUTH_ENABLED=true` and configure `AUTH_ALLOWED_ROLES` or `AUTH_ALLOWED_GROUPS`
+- [ ] Set `AUTH_ADMIN_ROLES` and `PRIVACY_SERVICE_ROLES`, and assign the app roles to users in Entra
+- [ ] Keep `secrets/pulsar-ingestion.pem` owned by uid 10001 with mode 400
 - [ ] Set explicit `CORS_ORIGINS` (never use `*` with auth enabled)
 - [ ] Set `DOCS_ENABLED=false` (default) to hide OpenAPI docs
 - [ ] Configure `WEBHOOK_CLIENT_SECRET` to validate Graph webhook notifications
@@ -236,7 +251,7 @@ docker compose run --rm backend python maintenance.py dedupe
 
 ## Troubleshooting
 
-- Ensure `TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET` match an app registration with the required permissions and admin consent.
+- Ensure `TENANT_ID` and `CLIENT_ID` name the ingestion app, that it has the required permissions and admin consent, and that its registered certificate matches `secrets/pulsar-ingestion.pem`. Token errors show in the source-health dots and in `docker compose logs backend`.
 - Management Activity API typically exposes ~7 days of history. Directory/Intune audit retention follows your tenant policy (commonly 30–90 days).
 - The service uses the `micro_soc` database and `events` collection by default — adjust in `backend/config.py` if needed.
 - If using Azure Key Vault, ensure the runtime identity has `Get` permission on secrets.

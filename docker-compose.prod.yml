@@ -1,33 +1,46 @@
+# Images are pinned by digest; Dependabot proposes updates (.github/dependabot.yml).
+# Required in .env: MONGO_ROOT_USERNAME, MONGO_ROOT_PASSWORD, MONGO_APP_PASSWORD, REDIS_PASSWORD
+# (generate each with: openssl rand -hex 32), plus secrets/pulsar-ingestion.pem (see DEPLOY.md).
 services:
   redis:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:8-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
     container_name: pulsar-redis
     restart: always
+    # Command must start with valkey-server so the image's entrypoint still drops root privileges.
+    command: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+    configs:
+      - source: valkey_conf
+        target: /usr/local/etc/valkey/valkey.conf
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}  # read by valkey-cli in the healthcheck; keeps the password out of process args
     volumes:
       - redis_data:/data
     networks:
       - pulsar-internal
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 5s
 
   mongo:
-    image: mongo:7
+    image: mongo:7@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
     container_name: pulsar-mongo
     restart: always
     # Do NOT expose MongoDB port to the host in production
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+      # Used by deploy/mongo-init to create the least-privilege "pulsar" user
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD in .env}
     volumes:
       - mongo_data:/data/db
+      - ./deploy/mongo-init:/docker-entrypoint-initdb.d:ro
     networks:
       - pulsar-internal
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,8 +53,12 @@ services:
     env_file:
       - .env
     environment:
-      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017/
-      REDIS_URL: redis://redis:6379/0
+      # The app connects as "pulsar" (readWrite on events, insert-only on the audit trail), never as root.
+      MONGO_URI: mongodb://pulsar:${MONGO_APP_PASSWORD}@mongo:27017/?authSource=admin
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CLIENT_CERTIFICATE_PATH: /run/secrets/pulsar_ingestion_cert
+    secrets:
+      - pulsar_ingestion_cert
     depends_on:
       mongo:
         condition: service_healthy
@@ -60,6 +77,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+configs:
+  valkey_conf:
+    # Password in a mounted file, not on the command line, where any host user could read it with ps.
+    content: |
+      requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+
+secrets:
+  pulsar_ingestion_cert:
+    # Private key + certificate of the ingestion app. Owned by uid 10001 (the container user), mode 400.
+    file: ./secrets/pulsar-ingestion.pem
 
 volumes:
   mongo_data:
