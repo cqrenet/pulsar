@@ -1,7 +1,7 @@
-from audit_trail import log_action
+from audit_trail import log_action, set_audit
 from auth import apply_privacy_filter, require_auth
 from database import events_collection
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from models.api import (
     BulkTagsRequest,
     CommentAddRequest,
@@ -50,6 +50,7 @@ def list_events(
 
 @router.post("/events/bulk-tags")
 def bulk_tags(
+    request: Request,
     body: BulkTagsRequest,
     filters: EventFilters = Depends(),
     user: dict = Depends(require_auth),
@@ -74,12 +75,7 @@ def bulk_tags(
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Failed to update tags") from exc
 
-    log_action(
-        "bulk_tags",
-        "/api/events/bulk-tags",
-        {"tags": tags, "mode": body.mode, "matched": result_obj.matched_count},
-        user_sub(user),
-    )
+    set_audit(request, "bulk_tags", {"tags": tags, "mode": body.mode, "matched": result_obj.matched_count})
     return {"matched": result_obj.matched_count, "modified": result_obj.modified_count}
 
 
@@ -114,6 +110,7 @@ def filter_options(
 
 @router.patch("/events/{event_id}/tags")
 def update_tags(
+    request: Request,
     event_id: str,
     body: TagsUpdateRequest,
     user: dict = Depends(require_auth),
@@ -121,12 +118,13 @@ def update_tags(
     result = events_collection.update_one(apply_privacy_filter({"id": event_id}, user), {"$set": {"tags": body.tags}})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Event not found")
-    log_action("update_tags", f"/api/events/{event_id}/tags", {"tags": body.tags}, user_sub(user))
+    set_audit(request, "update_tags", {"event_id": event_id, "tags": body.tags})
     return {"tags": body.tags}
 
 
 @router.post("/events/{event_id}/comments")
 def add_comment(
+    request: Request,
     event_id: str,
     body: CommentAddRequest,
     user: dict = Depends(require_auth),
@@ -141,5 +139,5 @@ def add_comment(
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Event not found")
-    log_action("add_comment", f"/api/events/{event_id}/comments", {"text": body.text}, user_sub(user))
+    set_audit(request, "add_comment", {"event_id": event_id, "text": body.text})
     return comment

@@ -15,6 +15,7 @@ All notable changes to PULSAR will be documented here.
 - Blocking MongoDB calls no longer run on the event loop (summary, saved searches, MCP tools).
 - Frontend split into `js/` parts; the query-string builder, API helpers and download helper are no longer duplicated; bulk tagging asks for `append`/`replace` explicitly; load failures show a status message.
 - SIEM forwarding posts events a few at a time over one connection pool; the Graph token cache is lock-protected.
+- **Audit trail:** one record per mutating request, written by the middleware with the handler's action name and detail, the HTTP method, the status code (failed and denied attempts included) and the request ID. Handlers no longer write their own mutation records, so successful changes are no longer logged twice. **Breaking for audit queries:** `action` is now the semantic name (`update_tags`, `create_rule`, …) instead of `post`/`patch`/`delete` when the handler ran; saved-search changes are now audited. The correlation middleware now runs outermost, so rate-limit and error responses carry `x-request-id` too.
 - Removed unused code: `arq` and `jobs.py`, `EventItem`, MCP schema constants, `threshold_count` rule operator, unused mapping helpers.
 
 ### Security

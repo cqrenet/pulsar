@@ -80,21 +80,23 @@ async def rate_limit_middleware(request: Request, call_next):
 
 
 async def audit_middleware(request: Request, call_next):
+    """One audit record per mutating request: who, which action, outcome. Handlers add detail via set_audit()."""
     response = await call_next(request)
     if request.url.path.startswith("/api/") and request.method in MUTATING_METHODS:
         claims = getattr(request.state, "user", None)  # set by require_auth
         user = claims.get("sub", "unknown") if isinstance(claims, dict) else "anonymous"
+        audit = getattr(request.state, "audit", None) or {}
         log_action(
-            action=request.method.lower(),
+            action=audit.get("action") or request.method.lower(),
             resource=request.url.path,
-            details={"status_code": response.status_code},
+            details={**audit.get("details", {}), "method": request.method, "status_code": response.status_code},
             user=user,
         )
     return response
 
 
 def register_middleware(app: FastAPI) -> None:
-    """Attach all middleware. Later registrations wrap earlier ones, as before."""
+    """Attach all middleware. Later registrations wrap earlier ones."""
     # When auth is enabled, never allow credentials with wildcard origins.
     allow_credentials = not (AUTH_ENABLED and "*" in CORS_ORIGINS)
     if not allow_credentials:
@@ -102,7 +104,6 @@ def register_middleware(app: FastAPI) -> None:
             "CORS wildcard (*) is insecure with AUTH_ENABLED=true and allow_credentials. "
             "Disabling credentials. Set CORS_ORIGINS to your actual origin(s)."
         )
-    app.add_middleware(CorrelationIdMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=CORS_ORIGINS,
@@ -112,3 +113,5 @@ def register_middleware(app: FastAPI) -> None:
     )
     for fn in (prometheus_middleware, security_headers_middleware, rate_limit_middleware, audit_middleware):
         app.middleware("http")(fn)
+    # Added last so it is outermost: the request ID is bound before anything else (rate limiting, audit) runs.
+    app.add_middleware(CorrelationIdMiddleware)

@@ -2,13 +2,13 @@
 
 from typing import Literal
 
-from audit_trail import log_action
+from audit_trail import set_audit
 from auth import apply_privacy_filter, require_auth
 from bson import ObjectId
 from database import alerts_collection
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from utils.common import contains, user_sub
+from utils.common import contains
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -47,7 +47,7 @@ def list_alerts(
 
 
 @router.patch("/alerts/{alert_id}/status")
-def update_alert_status(alert_id: str, body: AlertStatusUpdate, user: dict = Depends(require_auth)):
+def update_alert_status(request: Request, alert_id: str, body: AlertStatusUpdate, user: dict = Depends(require_auth)):
     if not ObjectId.is_valid(alert_id):
         raise HTTPException(status_code=404, detail="Alert not found")
     result = alerts_collection.update_one(
@@ -56,7 +56,7 @@ def update_alert_status(alert_id: str, body: AlertStatusUpdate, user: dict = Dep
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Alert not found")
-    log_action("update_alert_status", f"/api/alerts/{alert_id}/status", {"status": body.status}, user_sub(user))
+    set_audit(request, "update_alert_status", {"alert_id": alert_id, "status": body.status})
     return {"updated": True, "status": body.status}
 
 

@@ -3,9 +3,10 @@
 import uuid
 
 import structlog
+from audit_trail import set_audit
 from auth import require_auth
 from database import saved_searches_collection
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from utils.common import iso_z, user_sub, utc_now
 
@@ -33,7 +34,7 @@ def list_saved_searches(user: dict = Depends(require_auth)):
 
 
 @router.post("/saved-searches")
-def create_saved_search(body: SavedSearchCreate, user: dict = Depends(require_auth)):
+def create_saved_search(request: Request, body: SavedSearchCreate, user: dict = Depends(require_auth)):
     """Save the current filter set."""
     sub = user_sub(user)
     existing = saved_searches_collection.count_documents({"created_by": sub})
@@ -52,16 +53,18 @@ def create_saved_search(body: SavedSearchCreate, user: dict = Depends(require_au
     }
     saved_searches_collection.insert_one(doc)
     logger.info("Saved search created", name=body.name, user=sub)
+    set_audit(request, "create_saved_search", {"name": body.name})
     doc["id"] = doc.pop("_id")
     return doc
 
 
 @router.delete("/saved-searches/{search_id}")
-def delete_saved_search(search_id: str, user: dict = Depends(require_auth)):
+def delete_saved_search(request: Request, search_id: str, user: dict = Depends(require_auth)):
     """Delete a saved search (only if owned by current user)."""
     sub = user_sub(user)
     result = saved_searches_collection.delete_one({"_id": search_id, "created_by": sub})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Saved search not found")
     logger.info("Saved search deleted", search_id=search_id, user=sub)
+    set_audit(request, "delete_saved_search", {"search_id": search_id})
     return {"status": "deleted"}

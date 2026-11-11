@@ -61,6 +61,27 @@ def test_audit_trail_records_the_real_user(client, signed_in):
     assert users == {"admin-sub"}
 
 
+def test_one_audit_record_per_mutation_with_action_detail_and_request_id(client, signed_in):
+    headers = {**signed_in("admin"), "x-request-id": "req-123"}
+    assert client.post("/api/rules", json=RULE, headers=headers).status_code == 200
+    records = list(audit_trail.audit_collection.find({"resource": "/api/rules"}))
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["action"] == "create_rule" and rec["user"] == "admin-sub" and rec["request_id"] == "req-123"
+    assert rec["details"] == {"name": "r1", "enabled": True, "method": "POST", "status_code": 200}
+
+
+def test_denied_and_unnamed_mutations_are_still_audited(client, signed_in, monkeypatch):
+    monkeypatch.setattr("auth.AUTH_ADMIN_ROLES", {"PulsarAdmin"})
+    assert client.post("/api/rules", json=RULE, headers=signed_in("reader")).status_code == 403
+    denied = audit_trail.audit_collection.find_one({"resource": "/api/rules"})
+    assert denied["action"] == "post" and denied["details"]["status_code"] == 403  # handler never ran
+
+    client.post("/api/saved-searches", json={"name": "s", "filters": {}}, headers=signed_in("reader"))
+    saved = audit_trail.audit_collection.find_one({"action": "create_saved_search"})
+    assert saved["user"] == "reader-sub" and saved["details"]["name"] == "s"
+
+
 def test_rule_changes_and_fetch_require_admin_role(client, signed_in, monkeypatch):
     monkeypatch.setattr("auth.AUTH_ADMIN_ROLES", {"PulsarAdmin"})
     assert client.get("/api/rules", headers=signed_in("reader")).status_code == 200
