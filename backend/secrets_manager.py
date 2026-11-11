@@ -6,7 +6,6 @@ pydantic-settings can read them. Falls back to .env / environment variables
 when Key Vault is not configured.
 
 Secret naming convention in Key Vault:
-    pulsar-client-secret         → CLIENT_SECRET
     pulsar-mongo-uri             → MONGO_URI
     pulsar-webhook-client-secret → WEBHOOK_CLIENT_SECRET
 """
@@ -18,7 +17,6 @@ import structlog
 logger = structlog.get_logger("pulsar.secrets")
 
 _KEY_VAULT_SECRET_MAP = {
-    "pulsar-client-secret": "CLIENT_SECRET",
     "pulsar-mongo-uri": "MONGO_URI",
     "pulsar-webhook-client-secret": "WEBHOOK_CLIENT_SECRET",
 }

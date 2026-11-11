@@ -1,10 +1,12 @@
 from datetime import UTC, datetime
 
 import structlog
-from database import db
+from config import AUDIT_DB_NAME
+from database import client
 
 logger = structlog.get_logger("pulsar.audit")
-audit_collection = db["pulsar_audit"]
+# Own database: the app's MongoDB user may only insert and read here, never update or delete.
+audit_collection = client[AUDIT_DB_NAME]["pulsar_audit"]
 
 
 def log_action(action: str, resource: str, details: dict | None = None, user: str | None = None):
@@ -16,6 +18,8 @@ def log_action(action: str, resource: str, details: dict | None = None, user: st
         "details": details or {},
         "user": user or "anonymous",
     }
+    # Copy to stdout first: container logs keep the record even if the database is tampered with.
+    logger.info("audit", audit=dict(doc))
     try:
         audit_collection.insert_one(doc)
     except Exception as exc:

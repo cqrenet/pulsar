@@ -1,3 +1,5 @@
+import hmac
+
 import structlog
 from config import WEBHOOK_CLIENT_SECRET
 from fastapi import APIRouter, Request, Response
@@ -39,8 +41,9 @@ async def graph_webhook(request: Request):
         return Response(status_code=400)
 
     for notification in notifications:
-        client_state = notification.get("clientState")
-        if WEBHOOK_CLIENT_SECRET and client_state != WEBHOOK_CLIENT_SECRET:
+        client_state = str(notification.get("clientState") or "")
+        # Fail closed: without a configured secret there is no way to tell Graph from a spoofer.
+        if not WEBHOOK_CLIENT_SECRET or not hmac.compare_digest(client_state.encode(), WEBHOOK_CLIENT_SECRET.encode()):
             logger.warning(
                 "Graph webhook rejected: invalid clientState",
                 change_type=notification.get("changeType"),
