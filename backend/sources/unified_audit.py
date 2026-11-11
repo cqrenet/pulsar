@@ -1,7 +1,7 @@
 from contextlib import suppress
 from datetime import datetime, timedelta
 
-from config import TENANT_ID
+from config import settings
 from graph.auth import get_access_token
 from utils.common import utc_now
 from utils.http import get_json, get_with_retry, post_with_retry
@@ -79,8 +79,8 @@ def fetch_unified_audit(hours: int = 24, since: str | None = None, max_files: in
     events = []
 
     for content_type in AUDIT_CONTENT_TYPES:
-        _ensure_subscription(content_type, token, TENANT_ID)
-        contents = _list_content(content_type, token, TENANT_ID, hours, since)
+        _ensure_subscription(content_type, token, settings.TENANT_ID)
+        contents = _list_content(content_type, token, settings.TENANT_ID, hours, since)
         for item in contents[:max_files]:
             content_uri = item.get("contentUri")
             if not content_uri:

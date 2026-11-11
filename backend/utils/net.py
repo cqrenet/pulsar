@@ -3,7 +3,7 @@
 import ipaddress
 
 import structlog
-from config import TRUSTED_PROXIES
+from config import settings
 from fastapi import Request
 
 logger = structlog.get_logger("pulsar.net")
@@ -31,7 +31,7 @@ def ip_in(ip: str, networks: list) -> bool:
     return any(addr in net for net in networks)
 
 
-_TRUSTED_PROXIES = parse_networks(TRUSTED_PROXIES)
+_TRUSTED_PROXIES = parse_networks(settings.TRUSTED_PROXIES)
 
 
 def client_ip(request: Request) -> str:

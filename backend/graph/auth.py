@@ -14,7 +14,7 @@ from pathlib import Path
 
 import jwt
 import requests
-from config import CLIENT_CERTIFICATE_PATH, CLIENT_ID, TENANT_ID
+from config import settings
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
@@ -41,14 +41,14 @@ def _load_certificate(path: str):
 
 
 def client_assertion(token_url: str) -> str:
-    if not CLIENT_CERTIFICATE_PATH:
+    if not settings.CLIENT_CERTIFICATE_PATH:
         raise RuntimeError("CLIENT_CERTIFICATE_PATH is not set")
-    key, headers = _load_certificate(CLIENT_CERTIFICATE_PATH)
+    key, headers = _load_certificate(settings.CLIENT_CERTIFICATE_PATH)
     now = int(time.time())
     claims = {
         "aud": token_url,
-        "iss": CLIENT_ID,
-        "sub": CLIENT_ID,
+        "iss": settings.CLIENT_ID,
+        "sub": settings.CLIENT_ID,
         "jti": str(uuid.uuid4()),
         "nbf": now,
         "iat": now,
@@ -70,10 +70,10 @@ def _get_access_token_locked(scope: str):
     if cached and cached["exp"] > now + 300:
         return cached["token"]
 
-    url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
+    url = f"https://login.microsoftonline.com/{settings.TENANT_ID}/oauth2/v2.0/token"
     data = {
         "grant_type": "client_credentials",
-        "client_id": CLIENT_ID,
+        "client_id": settings.CLIENT_ID,
         "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
         "client_assertion": client_assertion(url),
         "scope": scope,

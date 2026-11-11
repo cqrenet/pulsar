@@ -12,7 +12,7 @@ from pathlib import Path
 
 import structlog
 import yaml
-from config import ALERT_DEDUPE_MINUTES, ALERT_WEBHOOK_FORMAT, ALERT_WEBHOOK_URL
+from config import settings
 from database import alerts_collection, rules_collection
 from notifications import send_notification
 from utils.common import utc_now
@@ -87,12 +87,12 @@ def _actor_of(event: dict) -> str:
 
 def _is_duplicate(rule: dict, event: dict) -> bool:
     """Check if an alert for this rule + actor was recently created."""
-    if ALERT_DEDUPE_MINUTES <= 0:
+    if settings.ALERT_DEDUPE_MINUTES <= 0:
         return False
     query = {
         "rule_id": str(rule.get("_id")),
         "actor": _actor_of(event),
-        "timestamp": {"$gte": (utc_now() - timedelta(minutes=ALERT_DEDUPE_MINUTES)).isoformat()},
+        "timestamp": {"$gte": (utc_now() - timedelta(minutes=settings.ALERT_DEDUPE_MINUTES)).isoformat()},
     }
     return alerts_collection.count_documents(query, limit=1) > 0
 
@@ -118,11 +118,11 @@ def _create_alert(rule: dict, event: dict):
         logger.warning("Failed to create alert", error=str(exc))
         return
 
-    if ALERT_WEBHOOK_URL:
+    if settings.ALERT_WEBHOOK_URL:
         try:
             send_notification(
-                webhook_url=ALERT_WEBHOOK_URL,
-                format_type=ALERT_WEBHOOK_FORMAT,
+                webhook_url=settings.ALERT_WEBHOOK_URL,
+                format_type=settings.ALERT_WEBHOOK_FORMAT,
                 rule_name=alert["rule_name"],
                 severity=alert["severity"],
                 message=rule.get("message", ""),

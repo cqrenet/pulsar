@@ -1,7 +1,7 @@
 """Async Redis client singleton (rate limiting)."""
 
 import redis.asyncio as aioredis
-from config import REDIS_URL
+from config import settings
 
 _plain_redis: aioredis.Redis | None = None
 
@@ -10,7 +10,7 @@ async def get_redis() -> aioredis.Redis:
     """Return a shared plain async Redis client."""
     global _plain_redis
     if _plain_redis is None:
-        _plain_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+        _plain_redis = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
     return _plain_redis
 
 

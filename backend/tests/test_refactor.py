@@ -1,6 +1,7 @@
 """Regression tests for the shared helpers introduced by the refactor."""
 
 import pytest
+from config import settings
 
 
 def test_seed_default_rules_inserts_once_and_keeps_admin_edits(client):
@@ -43,8 +44,8 @@ def test_outbound_urls_allowed():
 def test_alert_summary_is_privacy_filtered(client, monkeypatch):
     import rules
 
-    monkeypatch.setattr("auth.PRIVACY_SERVICES", {"Exchange"})
-    monkeypatch.setattr("auth.PRIVACY_SERVICE_ROLES", {"PrivacyReader"})
+    monkeypatch.setattr("config.settings.PRIVACY_SERVICES", {"Exchange"})
+    monkeypatch.setattr("config.settings.PRIVACY_SERVICE_ROLES", {"PrivacyReader"})
     rules.alerts_collection.insert_many(
         [
             {"service": "Exchange", "status": "open", "severity": "high"},
@@ -74,7 +75,7 @@ def test_event_filters_build_one_query():
 def test_rate_limit_categories(path, limits):
     import rate_limiter
 
-    expected = limits or (rate_limiter.RATE_LIMIT_REQUESTS, rate_limiter.RATE_LIMIT_WINDOW_SECONDS)
+    expected = limits or (settings.RATE_LIMIT_REQUESTS, settings.RATE_LIMIT_WINDOW_SECONDS)
     assert rate_limiter._limit_for_category(rate_limiter._get_path_category(path)) == expected
 
 
@@ -113,7 +114,7 @@ def test_run_fetch_stores_events_and_loads_rules_once(client, mock_events_collec
     )
     # mongomock does not support this pymongo version's bulk_write(UpdateOne); upsert one by one instead.
     monkeypatch.setattr(ingest, "_upsert", lambda docs: mock_events_collection.insert_many(docs))
-    monkeypatch.setattr(ingest, "ALERTS_ENABLED", True)
+    monkeypatch.setattr("config.settings.ALERTS_ENABLED", True)
     monkeypatch.setattr(ingest, "load_rules", fake_load)
     monkeypatch.setattr(ingest, "evaluate_event", lambda doc, rules: calls.__setitem__("eval", calls["eval"] + 1))
 
@@ -133,13 +134,34 @@ def test_siem_forwards_all_events_and_blocks_bad_urls(monkeypatch):
         def raise_for_status(self):
             pass
 
-    monkeypatch.setattr(siem, "SIEM_ENABLED", True)
+    monkeypatch.setattr("config.settings.SIEM_ENABLED", True)
     monkeypatch.setattr(siem.requests.Session, "post", lambda self, url, json, timeout: posted.append(json) or Resp())
 
-    monkeypatch.setattr(siem, "SIEM_WEBHOOK_URL", "http://siem.example.com/x")  # not https
+    monkeypatch.setattr("config.settings.SIEM_WEBHOOK_URL", "http://siem.example.com/x")  # not https
     siem.forward_events([{"id": "0"}])
     assert posted == []
 
-    monkeypatch.setattr(siem, "SIEM_WEBHOOK_URL", "https://siem.example.com/x")
+    monkeypatch.setattr("config.settings.SIEM_WEBHOOK_URL", "https://siem.example.com/x")
     siem.forward_events([{"id": str(i)} for i in range(10)])
     assert sorted(e["id"] for e in posted) == sorted(str(i) for i in range(10))
+
+
+def test_settings_parse_env_lists_and_derive_values(monkeypatch):
+    from config import Settings
+
+    monkeypatch.setenv("AUTH_ALLOWED_ROLES", "Reader, Admin,")
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.example, https://b.example")
+    monkeypatch.setenv("SIEM_ALLOWED_DOMAINS", "SIEM.Example.com,*.Corp.example")
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", "pulsar.example.com")
+    monkeypatch.setenv("MCP_API_KEY", "  key  ")
+    monkeypatch.setenv("TENANT_ID", "tenant-1")
+    monkeypatch.setenv("AUTH_TENANT_ID", "")
+    monkeypatch.setenv("CLIENT_ID", "ingest")
+    s = Settings(_env_file=None)
+    assert sorted(s.AUTH_ALLOWED_ROLES) == ["Admin", "Reader"]
+    assert s.CORS_ORIGINS == ["https://a.example", "https://b.example"]
+    assert s.SIEM_ALLOWED_DOMAINS == ["siem.example.com", "*.corp.example"]
+    assert s.MCP_ALLOWED_HOSTS == ["pulsar.example.com"]
+    assert s.MCP_API_KEY == "key"
+    assert s.AUTH_TENANT_ID == "tenant-1"  # falls back to TENANT_ID
+    assert s.AUTH_CLIENT_ID == ""  # never falls back to the ingestion app's CLIENT_ID

@@ -5,17 +5,7 @@ import time
 
 import requests
 import structlog
-from config import (
-    AUTH_ADMIN_ROLES,
-    AUTH_ALLOWED_GROUPS,
-    AUTH_ALLOWED_ROLES,
-    AUTH_CLIENT_ID,
-    AUTH_ENABLED,
-    AUTH_TENANT_ID,
-    PRIVACY_SENSITIVE_OPERATIONS,
-    PRIVACY_SERVICE_ROLES,
-    PRIVACY_SERVICES,
-)
+from config import settings
 from fastapi import Depends, Header, HTTPException, Request
 from jwt import ExpiredSignatureError, InvalidTokenError, decode, get_unverified_header
 from jwt.algorithms import RSAAlgorithm
@@ -28,7 +18,7 @@ logger = structlog.get_logger("pulsar.auth")
 def _fetch_jwks_blocking() -> list:
     """Fetch JWKS from Microsoft — runs in a thread, never in the event loop."""
     oidc = requests.get(
-        f"https://login.microsoftonline.com/{AUTH_TENANT_ID}/v2.0/.well-known/openid-configuration",
+        f"https://login.microsoftonline.com/{settings.AUTH_TENANT_ID}/v2.0/.well-known/openid-configuration",
         timeout=10,
     ).json()
     jwks_uri = oidc["jwks_uri"]
@@ -79,19 +69,19 @@ def _decode_token(token: str, jwks):
 
         pub_key = RSAAlgorithm.from_jwk(json.dumps(key_dict))
         decode_kwargs = {"algorithms": ["RS256"]}
-        if AUTH_CLIENT_ID:
+        if settings.AUTH_CLIENT_ID:
             # Entra v2.0 tokens issued for a custom scope (e.g. api://<id>/user_impersonation)
             # carry aud = "api://<clientId>", not the bare GUID.  Accept both so operators
             # can set AUTH_CLIENT_ID to either the GUID or the full Application ID URI.
-            bare = AUTH_CLIENT_ID.removeprefix("api://")
+            bare = settings.AUTH_CLIENT_ID.removeprefix("api://")
             decode_kwargs["audience"] = [bare, f"api://{bare}"]
         claims = decode(token, pub_key, **decode_kwargs)
 
         tid = claims.get("tid")
         iss = claims.get("iss", "")
-        if AUTH_TENANT_ID and tid and tid != AUTH_TENANT_ID:
+        if settings.AUTH_TENANT_ID and tid and tid != settings.AUTH_TENANT_ID:
             raise HTTPException(status_code=401, detail="Invalid tenant")
-        if AUTH_TENANT_ID and AUTH_TENANT_ID not in iss:
+        if settings.AUTH_TENANT_ID and settings.AUTH_TENANT_ID not in iss:
             raise HTTPException(status_code=401, detail="Invalid issuer")
         # ID tokens share our audience and signing keys but are not API credentials.
         # Entra access tokens always name the calling client (v2 "azp", v1 "appid"); ID tokens never do.
@@ -116,10 +106,10 @@ def user_can_access_privacy_services(claims: dict | None) -> bool:
 
     Fails closed: when privacy services/operations are configured, only PRIVACY_SERVICE_ROLES see them.
     """
-    if not PRIVACY_SERVICES and not PRIVACY_SENSITIVE_OPERATIONS:
+    if not settings.PRIVACY_SERVICES and not settings.PRIVACY_SENSITIVE_OPERATIONS:
         return True
     claims = claims or {}
-    return bool(_roles(claims).intersection(PRIVACY_SERVICE_ROLES))
+    return bool(_roles(claims).intersection(settings.PRIVACY_SERVICE_ROLES))
 
 
 def apply_privacy_filter(query: dict, claims: dict | None) -> dict:
@@ -127,10 +117,10 @@ def apply_privacy_filter(query: dict, claims: dict | None) -> dict:
     if user_can_access_privacy_services(claims):
         return query
     hidden = {}
-    if PRIVACY_SERVICES:
-        hidden["service"] = {"$nin": sorted(PRIVACY_SERVICES)}
-    if PRIVACY_SENSITIVE_OPERATIONS:
-        hidden["operation"] = {"$nin": sorted(PRIVACY_SENSITIVE_OPERATIONS)}
+    if settings.PRIVACY_SERVICES:
+        hidden["service"] = {"$nin": sorted(settings.PRIVACY_SERVICES)}
+    if settings.PRIVACY_SENSITIVE_OPERATIONS:
+        hidden["operation"] = {"$nin": sorted(settings.PRIVACY_SENSITIVE_OPERATIONS)}
     return {"$and": [query, hidden]} if query else hidden
 
 
@@ -145,7 +135,7 @@ async def require_auth(authorization: str | None = Header(None), request: Reques
 
 async def require_admin(user: dict = Depends(require_auth)) -> dict:
     """Gate configuration changes (alert rules, manual fetch) behind AUTH_ADMIN_ROLES."""
-    if AUTH_ENABLED and not _allowed(user, AUTH_ADMIN_ROLES, set()):
+    if settings.AUTH_ENABLED and not _allowed(user, settings.AUTH_ADMIN_ROLES, set()):
         raise HTTPException(status_code=403, detail="Admin role required")
     return user
 
@@ -156,13 +146,13 @@ async def verify_bearer(token: str) -> dict:
     Raises HTTPException: 401 for a bad token, 403 for a valid token without access.
     """
     claims = _decode_token(token, await _get_jwks_async())
-    if not _allowed(claims, AUTH_ALLOWED_ROLES, AUTH_ALLOWED_GROUPS):
+    if not _allowed(claims, settings.AUTH_ALLOWED_ROLES, settings.AUTH_ALLOWED_GROUPS):
         raise HTTPException(status_code=403, detail="Forbidden")
     return claims
 
 
 async def _authenticate(authorization: str | None) -> dict:
-    if not AUTH_ENABLED:
+    if not settings.AUTH_ENABLED:
         return {"sub": "anonymous"}
 
     if not authorization or not authorization.lower().startswith("bearer "):

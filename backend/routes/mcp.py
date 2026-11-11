@@ -17,7 +17,7 @@ import hmac
 
 import structlog
 from auth import verify_bearer
-from config import AUTH_ENABLED, MCP_API_KEY
+from config import settings
 from fastapi import HTTPException
 from mcp_tools import mcp
 
@@ -73,21 +73,21 @@ class _McpAuthMiddleware:
         token = key_header or (auth[7:] if auth.lower().startswith("bearer ") else "")
 
         # 1. API key path — fast, no Entra round-trip
-        if MCP_API_KEY:
-            if hmac.compare_digest(token.encode(), MCP_API_KEY.encode()):
+        if settings.MCP_API_KEY:
+            if hmac.compare_digest(token.encode(), settings.MCP_API_KEY.encode()):
                 logger.info("MCP SSE connection via API key")
                 # A shared key carries no roles, so privacy-gated data stays hidden from it.
                 await self._forward({"sub": "mcp-api-key"}, scope, receive, send)
                 return
             # Key is configured but didn't match — fall through to OIDC only if enabled,
             # otherwise reject (avoids leaking that a key is configured).
-            if not AUTH_ENABLED:
+            if not settings.AUTH_ENABLED:
                 logger.warning("MCP auth failed: invalid API key")
                 await _reject(send, 401, _UNAUTHORIZED)
                 return
 
         # 2. Entra JWT path
-        if AUTH_ENABLED:
+        if settings.AUTH_ENABLED:
             if not token:
                 await _reject(send, 401, _UNAUTHORIZED)
                 return

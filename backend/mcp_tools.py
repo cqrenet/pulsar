@@ -6,7 +6,7 @@ Imported by both:
 """
 
 from audit_trail import log_action
-from config import MCP_ALLOWED_HOSTS
+from config import settings
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp_common import (
@@ -24,7 +24,7 @@ from utils.common import user_sub
 # MCP_ALLOWED_HOSTS: comma-separated list of host[:port] values to allow in addition
 # to the standard loopback entries.  Typically the public hostname of your PULSAR
 # instance.  Defaults to empty (loopback only — fine for stdio / local use).
-_allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*", *MCP_ALLOWED_HOSTS]
+_allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*", *settings.MCP_ALLOWED_HOSTS]
 
 mcp = FastMCP(
     "pulsar",

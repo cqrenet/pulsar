@@ -27,20 +27,20 @@ def test_allowed_by_group():
     assert _allowed({"groups": ["Users"]}, set(), {"SecOps"}) is False
 
 
-@patch("auth.AUTH_ENABLED", False)
+@patch("config.settings.AUTH_ENABLED", False)
 def test_require_auth_disabled():
     claims = asyncio.run(require_auth(None))
     assert claims["sub"] == "anonymous"
 
 
-@patch("auth.AUTH_ENABLED", True)
+@patch("config.settings.AUTH_ENABLED", True)
 def test_require_auth_missing_header():
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(require_auth(None))
     assert exc_info.value.status_code == 401
 
 
-@patch("auth.AUTH_ENABLED", True)
+@patch("config.settings.AUTH_ENABLED", True)
 def test_require_auth_invalid_bearer():
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(require_auth("Basic abc"))

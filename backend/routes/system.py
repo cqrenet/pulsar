@@ -3,7 +3,7 @@
 import os
 
 import structlog
-from config import AUTH_CLIENT_ID, AUTH_TENANT_ID, MCP_CLIENT_ID, METRICS_ALLOWED_IPS
+from config import settings
 from database import db
 from fastapi import APIRouter, HTTPException, Request, Response
 from metrics import prometheus_metrics
@@ -12,11 +12,11 @@ from utils.net import client_ip, ip_in, parse_networks
 router = APIRouter()
 logger = structlog.get_logger("pulsar.system")
 
-OAUTH_CLIENT_ID = MCP_CLIENT_ID or AUTH_CLIENT_ID
-OAUTH_TENANT_ID = AUTH_TENANT_ID
+OAUTH_CLIENT_ID = settings.MCP_CLIENT_ID or settings.AUTH_CLIENT_ID
+OAUTH_TENANT_ID = settings.AUTH_TENANT_ID
 OAUTH_DISCOVERY_ENABLED = bool(OAUTH_TENANT_ID and OAUTH_CLIENT_ID)
 
-_METRICS_NETWORKS = parse_networks(METRICS_ALLOWED_IPS)
+_METRICS_NETWORKS = parse_networks(settings.METRICS_ALLOWED_IPS)
 
 
 def app_version() -> str:

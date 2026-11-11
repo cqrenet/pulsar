@@ -1,13 +1,13 @@
 from datetime import UTC, datetime
 
 import structlog
-from config import AUDIT_DB_NAME
+from config import settings
 from database import client
 from fastapi import Request
 
 logger = structlog.get_logger("pulsar.audit")
 # Own database: the app's MongoDB user may only insert and read here, never update or delete.
-audit_collection = client[AUDIT_DB_NAME]["pulsar_audit"]
+audit_collection = client[settings.AUDIT_DB_NAME]["pulsar_audit"]
 
 
 def log_action(action: str, resource: str, details: dict | None = None, user: str | None = None):

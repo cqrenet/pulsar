@@ -2,11 +2,11 @@ from contextlib import suppress
 from time import sleep
 
 import structlog
-from config import DB_NAME, MONGO_URI, RETENTION_DAYS
+from config import settings
 from pymongo import ASCENDING, DESCENDING, TEXT, MongoClient
 
-client = MongoClient(MONGO_URI or "mongodb://localhost:27017")
-db = client[DB_NAME]
+client = MongoClient(settings.MONGO_URI or "mongodb://localhost:27017")
+db = client[settings.DB_NAME]
 events_collection = db["events"]
 saved_searches_collection = db["saved_searches"]
 alerts_collection = db["alerts"]
@@ -45,10 +45,10 @@ def setup_indexes(max_retries: int = 5, delay: float = 2.0):
                 [("actor_display", TEXT), ("raw_text", TEXT), ("operation", TEXT)],
                 name="text_search_index",
             )
-            if RETENTION_DAYS > 0:
+            if settings.RETENTION_DAYS > 0:
                 events_collection.create_index(
                     [("timestamp", ASCENDING)],
-                    expireAfterSeconds=RETENTION_DAYS * 24 * 60 * 60,
+                    expireAfterSeconds=settings.RETENTION_DAYS * 24 * 60 * 60,
                     name="ttl_timestamp",
                 )
             else:

@@ -32,12 +32,9 @@ def client(mock_events_collection, mock_watermarks_collection, monkeypatch):
     monkeypatch.setattr("routes.health.watermarks_collection", mock_watermarks_collection)
     monkeypatch.setattr("ingest.get_watermark", lambda source: None)
     monkeypatch.setattr("ingest.set_watermark", lambda source, ts, status=None: None)
-    monkeypatch.setattr("auth.AUTH_ENABLED", False)
-    monkeypatch.setattr("routes.mcp.AUTH_ENABLED", False)
-    monkeypatch.setattr("config.PRIVACY_SERVICES", set())
-    monkeypatch.setattr("config.PRIVACY_SENSITIVE_OPERATIONS", set())
-    monkeypatch.setattr("auth.PRIVACY_SERVICES", set())
-    monkeypatch.setattr("auth.PRIVACY_SENSITIVE_OPERATIONS", set())
+    monkeypatch.setattr("config.settings.AUTH_ENABLED", False)
+    monkeypatch.setattr("config.settings.PRIVACY_SERVICES", set())
+    monkeypatch.setattr("config.settings.PRIVACY_SENSITIVE_OPERATIONS", set())
     monkeypatch.setattr("database.db.command", lambda cmd: {"ok": 1} if cmd == "ping" else {})
 
     # Mock audit trail and rules collections

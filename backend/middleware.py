@@ -5,7 +5,7 @@ import uuid
 
 import structlog
 from audit_trail import log_action
-from config import AUTH_ENABLED, CORS_ORIGINS
+from config import settings
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from metrics import observe_request
@@ -98,7 +98,7 @@ async def audit_middleware(request: Request, call_next):
 def register_middleware(app: FastAPI) -> None:
     """Attach all middleware. Later registrations wrap earlier ones."""
     # When auth is enabled, never allow credentials with wildcard origins.
-    allow_credentials = not (AUTH_ENABLED and "*" in CORS_ORIGINS)
+    allow_credentials = not (settings.AUTH_ENABLED and "*" in settings.CORS_ORIGINS)
     if not allow_credentials:
         logger.warning(
             "CORS wildcard (*) is insecure with AUTH_ENABLED=true and allow_credentials. "
@@ -106,7 +106,7 @@ def register_middleware(app: FastAPI) -> None:
         )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
+        allow_origins=settings.CORS_ORIGINS,
         allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],

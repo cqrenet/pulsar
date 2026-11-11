@@ -231,7 +231,7 @@ Configuration lives in `pyproject.toml`:
 The `client` fixture is heavily patched for test isolation:
 
 - MongoDB collections replaced with `mongomock` collections
-- `auth.AUTH_ENABLED` set to `False`
+- `config.settings.AUTH_ENABLED` set to `False` (override settings with `monkeypatch.setattr("config.settings.NAME", value)`)
 - Privacy settings emptied
 - Redis replaced with in-memory `FakeRedis`
 - MCP SSE transport security validation disabled for `TestClient` compatibility

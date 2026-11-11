@@ -4,12 +4,22 @@ from secrets_manager import load_key_vault_secrets
 # This is a no-op if AZURE_KEY_VAULT_NAME is not set.
 load_key_vault_secrets()
 
-from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
+from typing import Annotated  # noqa: E402
+
+from pydantic import Field, field_validator, model_validator  # noqa: E402
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict  # noqa: E402
 
 
-def _csv(value: str) -> list[str]:
-    """Split a comma-separated setting, dropping blanks."""
-    return [item.strip() for item in value.split(",") if item.strip()]
+def _csv(value):
+    """Split a comma-separated setting, dropping blanks. Lists and sets pass through."""
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return value
+
+
+# NoDecode: pydantic-settings would otherwise try to parse these env values as JSON.
+CsvList = Annotated[list[str], NoDecode]
+CsvSet = Annotated[set[str], NoDecode]
 
 
 class Settings(BaseSettings):
@@ -40,16 +50,16 @@ class Settings(BaseSettings):
     AUTH_TENANT_ID: str = ""
     AUTH_CLIENT_ID: str = ""
     AUTH_SCOPE: str = ""
-    AUTH_ALLOWED_ROLES: str = ""
-    AUTH_ALLOWED_GROUPS: str = ""
+    AUTH_ALLOWED_ROLES: CsvSet = Field(default_factory=set)
+    AUTH_ALLOWED_GROUPS: CsvSet = Field(default_factory=set)
     # Roles allowed to change alert rules and trigger fetches (empty = any signed-in user)
-    AUTH_ADMIN_ROLES: str = ""
+    AUTH_ADMIN_ROLES: CsvSet = Field(default_factory=set)
 
     # Data retention (0 = disabled)
     RETENTION_DAYS: int = 0
 
     # CORS
-    CORS_ORIGINS: str = "*"
+    CORS_ORIGINS: CsvList = Field(default_factory=lambda: ["*"])
 
     # SIEM export
     SIEM_ENABLED: bool = False
@@ -60,9 +70,13 @@ class Settings(BaseSettings):
 
     # Privacy / access control
     # Entire services can be hidden, or specific operations can be gated.
-    PRIVACY_SERVICES: str = ""  # comma-separated, e.g. "Exchange,Teams"
-    PRIVACY_SENSITIVE_OPERATIONS: str = ""  # comma-separated, e.g. "MailItemsAccessed,Search-Mailbox,Send"
-    PRIVACY_SERVICE_ROLES: str = ""  # comma-separated, e.g. "SecurityAdministrator,ComplianceAdministrator"
+    PRIVACY_SERVICES: CsvSet = Field(default_factory=set)  # comma-separated, e.g. "Exchange,Teams"
+    PRIVACY_SENSITIVE_OPERATIONS: CsvSet = Field(
+        default_factory=set
+    )  # comma-separated, e.g. "MailItemsAccessed,Search-Mailbox,Send"
+    PRIVACY_SERVICE_ROLES: CsvSet = Field(
+        default_factory=set
+    )  # comma-separated, e.g. "SecurityAdministrator,ComplianceAdministrator"
 
     # Redis (caching + async job queue)
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -87,7 +101,7 @@ class Settings(BaseSettings):
     # Comma-separated list of host[:port] values that the MCP SSE transport will accept
     # in the Host header.  Add your public hostname here when running behind a reverse
     # proxy (e.g. "pulsar.cqre.net").  Loopback entries are always allowed.
-    MCP_ALLOWED_HOSTS: str = ""
+    MCP_ALLOWED_HOSTS: CsvList = Field(default_factory=list)
 
     # MCP API key (lightweight alternative / complement to OIDC for MCP SSE access)
     # Accepts the key via Authorization: Bearer <key> or x-api-key header.
@@ -105,74 +119,55 @@ class Settings(BaseSettings):
     TRUSTED_PROXIES: str = "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
     # SIEM webhook restriction (comma-separated domains)
-    SIEM_ALLOWED_DOMAINS: str = ""
+    SIEM_ALLOWED_DOMAINS: CsvList = Field(default_factory=list)
 
     # Optional Azure Key Vault integration for secrets
     AZURE_KEY_VAULT_NAME: str = ""
 
+    @field_validator(
+        "AUTH_ALLOWED_ROLES",
+        "AUTH_ALLOWED_GROUPS",
+        "AUTH_ADMIN_ROLES",
+        "CORS_ORIGINS",
+        "PRIVACY_SERVICES",
+        "PRIVACY_SENSITIVE_OPERATIONS",
+        "PRIVACY_SERVICE_ROLES",
+        "MCP_ALLOWED_HOSTS",
+        mode="before",
+    )
+    @classmethod
+    def _split_csv(cls, value):
+        return _csv(value)
 
-_settings = Settings()
+    @field_validator("SIEM_ALLOWED_DOMAINS", mode="before")
+    @classmethod
+    def _split_domains(cls, value):
+        return [d.lower() for d in _csv(value)]
 
-# Backward-compatible module-level exports
-TENANT_ID = _settings.TENANT_ID
-CLIENT_ID = _settings.CLIENT_ID
-CLIENT_CERTIFICATE_PATH = _settings.CLIENT_CERTIFICATE_PATH
-MONGO_URI = _settings.MONGO_URI
-DB_NAME = _settings.DB_NAME
-AUDIT_DB_NAME = _settings.AUDIT_DB_NAME
+    @field_validator("MCP_API_KEY", "MCP_CLIENT_ID", mode="after")
+    @classmethod
+    def _strip(cls, value: str) -> str:
+        return value.strip()
 
-ENABLE_PERIODIC_FETCH = _settings.ENABLE_PERIODIC_FETCH
-FETCH_INTERVAL_MINUTES = _settings.FETCH_INTERVAL_MINUTES
+    @model_validator(mode="after")
+    def _default_auth_tenant(self):
+        # The API app lives in the same tenant unless told otherwise. No fallback for AUTH_CLIENT_ID:
+        # CLIENT_ID is the ingestion app, which exposes no API.
+        self.AUTH_TENANT_ID = self.AUTH_TENANT_ID or self.TENANT_ID
+        return self
 
-AUTH_ENABLED = _settings.AUTH_ENABLED
-AUTH_TENANT_ID = _settings.AUTH_TENANT_ID or _settings.TENANT_ID or ""
-# No fallback to CLIENT_ID: that is the ingestion app, which exposes no API.
-AUTH_CLIENT_ID = _settings.AUTH_CLIENT_ID
-AUTH_SCOPE = _settings.AUTH_SCOPE
-AUTH_ALLOWED_ROLES = set(_csv(_settings.AUTH_ALLOWED_ROLES))
-AUTH_ALLOWED_GROUPS = set(_csv(_settings.AUTH_ALLOWED_GROUPS))
-AUTH_ADMIN_ROLES = set(_csv(_settings.AUTH_ADMIN_ROLES))
-
-RETENTION_DAYS = _settings.RETENTION_DAYS
-CORS_ORIGINS = _csv(_settings.CORS_ORIGINS)
-
-SIEM_ENABLED = _settings.SIEM_ENABLED
-SIEM_WEBHOOK_URL = _settings.SIEM_WEBHOOK_URL
-ALERTS_ENABLED = _settings.ALERTS_ENABLED
-
-PRIVACY_SERVICES = set(_csv(_settings.PRIVACY_SERVICES))
-PRIVACY_SENSITIVE_OPERATIONS = set(_csv(_settings.PRIVACY_SENSITIVE_OPERATIONS))
-PRIVACY_SERVICE_ROLES = set(_csv(_settings.PRIVACY_SERVICE_ROLES))
-
-REDIS_URL = _settings.REDIS_URL
-DEFAULT_PAGE_SIZE = _settings.DEFAULT_PAGE_SIZE
-
-ALERT_WEBHOOK_URL = _settings.ALERT_WEBHOOK_URL
-ALERT_WEBHOOK_FORMAT = _settings.ALERT_WEBHOOK_FORMAT
-ALERT_DEDUPE_MINUTES = _settings.ALERT_DEDUPE_MINUTES
-
-WEBHOOK_CLIENT_SECRET = _settings.WEBHOOK_CLIENT_SECRET
-
-RATE_LIMIT_ENABLED = _settings.RATE_LIMIT_ENABLED
-RATE_LIMIT_REQUESTS = _settings.RATE_LIMIT_REQUESTS
-RATE_LIMIT_WINDOW_SECONDS = _settings.RATE_LIMIT_WINDOW_SECONDS
-
-MCP_API_KEY = _settings.MCP_API_KEY.strip()
-MCP_CLIENT_ID = _settings.MCP_CLIENT_ID.strip()
-MCP_ALLOWED_HOSTS = _csv(_settings.MCP_ALLOWED_HOSTS)
-
-DOCS_ENABLED = _settings.DOCS_ENABLED
-METRICS_ALLOWED_IPS = _settings.METRICS_ALLOWED_IPS
-TRUSTED_PROXIES = _settings.TRUSTED_PROXIES
-
-SIEM_ALLOWED_DOMAINS = [d.lower() for d in _csv(_settings.SIEM_ALLOWED_DOMAINS)]
-
-AZURE_KEY_VAULT_NAME = _settings.AZURE_KEY_VAULT_NAME
+    def missing_auth_settings(self) -> list[str]:
+        """Settings that must be present when AUTH_ENABLED=true. Startup refuses to continue without them."""
+        if not self.AUTH_ENABLED:
+            return []
+        required = {
+            "AUTH_TENANT_ID": self.AUTH_TENANT_ID,
+            "AUTH_CLIENT_ID": self.AUTH_CLIENT_ID,
+            "AUTH_SCOPE": self.AUTH_SCOPE,
+        }
+        return [name for name, value in required.items() if not value]
 
 
-def missing_auth_settings() -> list[str]:
-    """Settings that must be present when AUTH_ENABLED=true. Startup refuses to continue without them."""
-    if not AUTH_ENABLED:
-        return []
-    required = {"AUTH_TENANT_ID": AUTH_TENANT_ID, "AUTH_CLIENT_ID": AUTH_CLIENT_ID, "AUTH_SCOPE": AUTH_SCOPE}
-    return [name for name, value in required.items() if not value]
+# The one settings object. Read attributes at call time (settings.X), never copy them at import,
+# so tests can override a value in one place.
+settings = Settings()

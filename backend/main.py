@@ -4,18 +4,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import structlog
-from config import (
-    AUTH_ADMIN_ROLES,
-    AUTH_ALLOWED_GROUPS,
-    AUTH_ALLOWED_ROLES,
-    AUTH_ENABLED,
-    DOCS_ENABLED,
-    ENABLE_PERIODIC_FETCH,
-    FETCH_INTERVAL_MINUTES,
-    MCP_API_KEY,
-    WEBHOOK_CLIENT_SECRET,
-    missing_auth_settings,
-)
+from config import settings
 from database import setup_indexes
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -64,24 +53,24 @@ logger = structlog.get_logger("pulsar.fetcher")
 
 
 def _warn_insecure_config() -> None:
-    if not AUTH_ENABLED and not MCP_API_KEY:
+    if not settings.AUTH_ENABLED and not settings.MCP_API_KEY:
         logger.warning(
             "MCP endpoint is open: AUTH_ENABLED=false and MCP_API_KEY is not set. "
             "Anyone who can reach /mcp can query audit events. "
             "Set MCP_API_KEY for a simple API key gate, or AUTH_ENABLED=true for Entra ID auth."
         )
-    if AUTH_ENABLED and not AUTH_ALLOWED_ROLES and not AUTH_ALLOWED_GROUPS:
+    if settings.AUTH_ENABLED and not settings.AUTH_ALLOWED_ROLES and not settings.AUTH_ALLOWED_GROUPS:
         logger.warning(
             "AUTH_ENABLED is true but no AUTH_ALLOWED_ROLES or AUTH_ALLOWED_GROUPS are configured. "
             "Any Entra user in the tenant can authenticate and access PULSAR. "
             "Set AUTH_ALLOWED_ROLES or AUTH_ALLOWED_GROUPS to restrict access."
         )
-    if AUTH_ENABLED and not AUTH_ADMIN_ROLES:
+    if settings.AUTH_ENABLED and not settings.AUTH_ADMIN_ROLES:
         logger.warning(
             "AUTH_ADMIN_ROLES is not set. Every signed-in user can change or delete alert rules. "
             "Set AUTH_ADMIN_ROLES to the app role(s) allowed to manage PULSAR."
         )
-    if not WEBHOOK_CLIENT_SECRET:
+    if not settings.WEBHOOK_CLIENT_SECRET:
         logger.warning(
             "WEBHOOK_CLIENT_SECRET is not set. Graph webhook notifications will be rejected. "
             "Set WEBHOOK_CLIENT_SECRET to the clientState used when creating Graph subscriptions."
@@ -95,12 +84,12 @@ async def _periodic_fetch():
             logger.info("Periodic fetch completed.")
         except Exception as exc:
             logger.error("Periodic fetch failed", error=str(exc))
-        await asyncio.sleep(FETCH_INTERVAL_MINUTES * 60)
+        await asyncio.sleep(settings.FETCH_INTERVAL_MINUTES * 60)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    missing = missing_auth_settings()
+    missing = settings.missing_auth_settings()
     if missing:
         # Fail closed: a half-configured auth setup must not come up and serve data.
         raise RuntimeError(f"AUTH_ENABLED=true but {', '.join(missing)} not set. Refusing to start.")
@@ -109,8 +98,8 @@ async def lifespan(app: FastAPI):
     logger.info(
         "PULSAR startup",
         version=app_version(),
-        auth_enabled=AUTH_ENABLED,
-        mcp_api_key_set=bool(MCP_API_KEY),
+        auth_enabled=settings.AUTH_ENABLED,
+        mcp_api_key_set=bool(settings.MCP_API_KEY),
         oauth_discovery=OAUTH_DISCOVERY_ENABLED,
     )
     if OAUTH_DISCOVERY_ENABLED:
@@ -121,7 +110,7 @@ async def lifespan(app: FastAPI):
             client=OAUTH_CLIENT_ID,
         )
     _warn_insecure_config()
-    fetch_task = asyncio.create_task(_periodic_fetch()) if ENABLE_PERIODIC_FETCH else None
+    fetch_task = asyncio.create_task(_periodic_fetch()) if settings.ENABLE_PERIODIC_FETCH else None
     try:
         yield
     finally:
@@ -134,9 +123,9 @@ async def lifespan(app: FastAPI):
 
 # OpenAPI docs are disabled in production by default.
 app = FastAPI(
-    docs_url="/docs" if DOCS_ENABLED else None,
-    redoc_url="/redoc" if DOCS_ENABLED else None,
-    openapi_url="/openapi.json" if DOCS_ENABLED else None,
+    docs_url="/docs" if settings.DOCS_ENABLED else None,
+    redoc_url="/redoc" if settings.DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if settings.DOCS_ENABLED else None,
     lifespan=lifespan,
 )
 register_middleware(app)

@@ -3,7 +3,7 @@
 import time
 
 import structlog
-from config import RATE_LIMIT_ENABLED, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SECONDS
+from config import settings
 from fastapi import HTTPException, Request
 from redis_client import get_redis
 from utils.net import client_ip
@@ -29,10 +29,9 @@ def _get_identifier(request: Request) -> str:
 _PATH_CATEGORIES = (("/api/fetch", "fetch"), ("/api/events/bulk-tags", "write"))
 
 # Category -> (max requests, window seconds). "default" comes from configuration.
-_CATEGORY_LIMITS = {
+_FIXED_LIMITS = {
     "fetch": (10, 3600),  # 10 per hour
     "write": (20, 60),  # 20 per minute
-    "default": (RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SECONDS),
 }
 
 
@@ -43,12 +42,12 @@ def _get_path_category(path: str) -> str:
 
 def _limit_for_category(category: str) -> tuple[int, int]:
     """Return (max_requests, window_seconds) for a category."""
-    return _CATEGORY_LIMITS[category]
+    return _FIXED_LIMITS.get(category) or (settings.RATE_LIMIT_REQUESTS, settings.RATE_LIMIT_WINDOW_SECONDS)
 
 
 async def check_rate_limit(request: Request):
     """Raise RateLimitExceeded if the client has exceeded their quota."""
-    if not RATE_LIMIT_ENABLED:
+    if not settings.RATE_LIMIT_ENABLED:
         return
 
     category = _get_path_category(request.url.path)

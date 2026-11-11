@@ -3,7 +3,7 @@
 import time
 
 import structlog
-from config import ALERTS_ENABLED
+from config import settings
 from database import events_collection
 from graph.audit_logs import fetch_audit_logs
 from metrics import track_fetch, track_fetch_duration, track_fetch_error
@@ -67,7 +67,7 @@ def run_fetch(hours: int = DEFAULT_FETCH_HOURS):
     normalized = [normalize_event(e) for e in raw_events]
     if normalized:
         _upsert(normalized)
-        if ALERTS_ENABLED:
+        if settings.ALERTS_ENABLED:
             rules = load_rules()  # once per run, not once per event
             for doc in normalized:
                 evaluate_event(doc, rules)

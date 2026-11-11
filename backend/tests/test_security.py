@@ -10,6 +10,7 @@ import audit_trail
 import auth
 import jwt
 import pytest
+from config import settings
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -30,7 +31,7 @@ def signed_in(monkeypatch):
     async def no_jwks():
         return []
 
-    monkeypatch.setattr("auth.AUTH_ENABLED", True)
+    monkeypatch.setattr("config.settings.AUTH_ENABLED", True)
     monkeypatch.setattr("auth._get_jwks_async", no_jwks)
     monkeypatch.setattr("auth._decode_token", lambda token, jwks: USERS[token])
     return lambda name: {"Authorization": f"Bearer {name}"}
@@ -38,8 +39,8 @@ def signed_in(monkeypatch):
 
 @pytest.fixture
 def privacy(monkeypatch, mock_events_collection):
-    monkeypatch.setattr("auth.PRIVACY_SERVICES", {"Exchange"})
-    monkeypatch.setattr("auth.PRIVACY_SERVICE_ROLES", {"PrivacyReader"})
+    monkeypatch.setattr("config.settings.PRIVACY_SERVICES", {"Exchange"})
+    monkeypatch.setattr("config.settings.PRIVACY_SERVICE_ROLES", {"PrivacyReader"})
     now = datetime.now(UTC).isoformat()
     mock_events_collection.insert_many(
         [
@@ -72,7 +73,7 @@ def test_one_audit_record_per_mutation_with_action_detail_and_request_id(client,
 
 
 def test_denied_and_unnamed_mutations_are_still_audited(client, signed_in, monkeypatch):
-    monkeypatch.setattr("auth.AUTH_ADMIN_ROLES", {"PulsarAdmin"})
+    monkeypatch.setattr("config.settings.AUTH_ADMIN_ROLES", {"PulsarAdmin"})
     assert client.post("/api/rules", json=RULE, headers=signed_in("reader")).status_code == 403
     denied = audit_trail.audit_collection.find_one({"resource": "/api/rules"})
     assert denied["action"] == "post" and denied["details"]["status_code"] == 403  # handler never ran
@@ -83,7 +84,7 @@ def test_denied_and_unnamed_mutations_are_still_audited(client, signed_in, monke
 
 
 def test_rule_changes_and_fetch_require_admin_role(client, signed_in, monkeypatch):
-    monkeypatch.setattr("auth.AUTH_ADMIN_ROLES", {"PulsarAdmin"})
+    monkeypatch.setattr("config.settings.AUTH_ADMIN_ROLES", {"PulsarAdmin"})
     assert client.get("/api/rules", headers=signed_in("reader")).status_code == 200
     assert client.post("/api/rules", json=RULE, headers=signed_in("reader")).status_code == 403
     assert client.get("/api/fetch-audit-logs", headers=signed_in("reader")).status_code == 403
@@ -103,8 +104,8 @@ def _token(key, kid, **claims):
 
 
 def test_id_tokens_are_not_accepted_as_api_credentials(monkeypatch):
-    monkeypatch.setattr("auth.AUTH_CLIENT_ID", "api-guid")
-    monkeypatch.setattr("auth.AUTH_TENANT_ID", "tenant")
+    monkeypatch.setattr("config.settings.AUTH_CLIENT_ID", "api-guid")
+    monkeypatch.setattr("config.settings.AUTH_TENANT_ID", "tenant")
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     jwks = [{**RSAAlgorithm.to_jwk(key.public_key(), as_dict=True), "kid": "k1"}]
 
@@ -150,8 +151,8 @@ def test_privacy_hidden_from_rest_reads(client, privacy):
 
 
 def test_privacy_operations_only_config_is_enforced(client, privacy, monkeypatch):
-    monkeypatch.setattr("auth.PRIVACY_SERVICES", set())
-    monkeypatch.setattr("auth.PRIVACY_SENSITIVE_OPERATIONS", {"Send"})
+    monkeypatch.setattr("config.settings.PRIVACY_SERVICES", set())
+    monkeypatch.setattr("config.settings.PRIVACY_SENSITIVE_OPERATIONS", {"Send"})
     assert [e["id"] for e in client.get("/api/events").json()["items"]] == ["pub"]
 
 
@@ -194,7 +195,7 @@ def test_mcp_api_key_caller_is_identified_and_audited(client, monkeypatch):
     from mcp_tools import _caller
     from routes.mcp import _McpAuthMiddleware
 
-    monkeypatch.setattr("routes.mcp.MCP_API_KEY", "k" * 32)
+    monkeypatch.setattr("config.settings.MCP_API_KEY", "k" * 32)
     seen = {}
 
     async def app(scope, receive, send):
@@ -237,15 +238,14 @@ def test_alert_cards_defang_tenant_controlled_text():
 
 
 def test_startup_refuses_incomplete_auth_config(monkeypatch):
-    import config
 
-    monkeypatch.setattr(config, "AUTH_ENABLED", True)
-    monkeypatch.setattr(config, "AUTH_TENANT_ID", "t")
-    monkeypatch.setattr(config, "AUTH_CLIENT_ID", "")
-    monkeypatch.setattr(config, "AUTH_SCOPE", "")
-    assert config.missing_auth_settings() == ["AUTH_CLIENT_ID", "AUTH_SCOPE"]
-    monkeypatch.setattr(config, "AUTH_ENABLED", False)
-    assert config.missing_auth_settings() == []
+    monkeypatch.setattr(settings, "AUTH_ENABLED", True)
+    monkeypatch.setattr(settings, "AUTH_TENANT_ID", "t")
+    monkeypatch.setattr(settings, "AUTH_CLIENT_ID", "")
+    monkeypatch.setattr(settings, "AUTH_SCOPE", "")
+    assert settings.missing_auth_settings() == ["AUTH_CLIENT_ID", "AUTH_SCOPE"]
+    monkeypatch.setattr(settings, "AUTH_ENABLED", False)
+    assert settings.missing_auth_settings() == []
 
 
 # --- Ingestion credential -------------------------------------------------------------------
@@ -277,9 +277,9 @@ def test_ingestion_uses_signed_certificate_assertion_not_secret(tmp_path, monkey
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     ) + cert.public_bytes(serialization.Encoding.PEM)
     (tmp_path / "ingest.pem").write_bytes(pem)
-    monkeypatch.setattr(graph_auth, "CLIENT_CERTIFICATE_PATH", str(tmp_path / "ingest.pem"))
-    monkeypatch.setattr(graph_auth, "CLIENT_ID", "ingest-app")
-    monkeypatch.setattr(graph_auth, "TENANT_ID", "tenant")
+    monkeypatch.setattr(settings, "CLIENT_CERTIFICATE_PATH", str(tmp_path / "ingest.pem"))
+    monkeypatch.setattr(settings, "CLIENT_ID", "ingest-app")
+    monkeypatch.setattr(settings, "TENANT_ID", "tenant")
     graph_auth._TOKEN_CACHE.clear()
 
     sent = {}
