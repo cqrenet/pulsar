@@ -65,7 +65,8 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - pulsar-internal
+      - pulsar-internal  # MongoDB and Valkey
+      - pulsar-edge  # published port and outbound access to Microsoft (Graph, Entra login)
     ports:
       # Bind to localhost only — always place behind a reverse proxy.
       # Your reverse proxy (nginx, Traefik, Caddy, Application Gateway, etc.)
@@ -94,5 +95,9 @@ volumes:
   redis_data:
 
 networks:
+  # No external connectivity: only mongo, redis and the backend can talk here.
   pulsar-internal:
     internal: true
+  # The backend needs a normal network: Docker cannot publish ports from, or route outbound traffic out of,
+  # an internal-only network, and ingestion must reach Microsoft.
+  pulsar-edge:

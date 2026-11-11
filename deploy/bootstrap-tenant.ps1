@@ -9,7 +9,7 @@
 
         PULSAR Ingestion  (outbound: reads M365 audit data)
             Application permissions, admin consent granted:
-              Microsoft Graph:             AuditLog.Read.All, DeviceManagementConfiguration.Read.All
+              Microsoft Graph:             AuditLog.Read.All, DeviceManagementApps.Read.All
               Office 365 Management APIs:  ActivityFeed.Read
             Credential: a certificate. You generate the private key ON THE PULSAR SERVER; this
             script uploads only the public certificate. No client secret, no redirect URIs,
@@ -166,7 +166,7 @@ function Get-OrCreateApp {
 $graphSp = Get-MgServicePrincipal -Filter "appId eq '$GraphAppId'"
 if (-not $graphSp) { throw "Microsoft Graph service principal not found." }
 $graphRoles = @(
-    foreach ($name in "AuditLog.Read.All", "DeviceManagementConfiguration.Read.All") {
+    foreach ($name in "AuditLog.Read.All", "DeviceManagementApps.Read.All") {
         $role = $graphSp.AppRoles | Where-Object { $_.Value -eq $name } | Select-Object -First 1
         if ($role) { $role } else { Write-Warning "Graph permission '$name' not found — skipping." }
     }

@@ -4,6 +4,14 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+## [2.0.1] — 2026-11-11
+
+### Fixed
+
+- **`docker-compose.prod.yml` could not run the backend.** It was attached only to an `internal: true` network, so the published port `127.0.0.1:8000` was unreachable and ingestion could not reach Microsoft. The backend now also joins a normal `pulsar-edge` network; MongoDB and Valkey stay on the internal network. The image is unchanged from 2.0.0. If you copied the 2.0.0 compose file, add the `pulsar-edge` network to the backend.
+
+- **Intune ingestion permission.** `deviceManagement/auditEvents` requires the application permission `DeviceManagementApps.Read.All`; the bootstrap script granted `DeviceManagementConfiguration.Read.All`, which returns 403. `deploy/bootstrap-tenant.ps1` now grants the right one. If you already ran the 2.0.0 script, add `DeviceManagementApps.Read.All` (application, admin consent) to the **PULSAR Ingestion** app.
+
 ## [2.0.0] — 2026-11-11
 
 **Major release with breaking changes.** Existing installs must follow [Upgrading from 1.4.x](DEPLOY.md#upgrading-from-14x): new Entra app registration and ingestion certificate, `MONGO_APP_PASSWORD` / `REDIS_PASSWORD`, `AUTH_SCOPE`, and the one-time MongoDB user setup. Audit-trail `action` values are now semantic names (see below), so update any audit queries that filter on `post`/`patch`/`delete`.

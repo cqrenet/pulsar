@@ -63,7 +63,7 @@ docker pull ghcr.io/cqrenet/pulsar:latest
 Pin to a specific release:
 
 ```bash
-export PULSAR_VERSION=v2.0.0  # or see VERSION
+export PULSAR_VERSION=v2.0.1  # or see VERSION
 docker pull ghcr.io/cqrenet/pulsar:${PULSAR_VERSION}
 ```
 

@@ -8,7 +8,7 @@ from utils.http import fetch_graph_pages
 def fetch_intune_audit(hours: int = 24, since: str | None = None, max_pages: int = 50) -> list[dict]:
     """
     Fetch Intune audit events via Microsoft Graph.
-    Requires Intune audit permissions (e.g., DeviceManagementConfiguration.Read.All).
+    Requires Intune audit permissions (DeviceManagementApps.Read.All is the application permission Graph requires for deviceManagement/auditEvents).
     """
     token = get_access_token()
     start_time = since or iso_z(utc_now() - timedelta(hours=hours))

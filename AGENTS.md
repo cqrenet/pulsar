@@ -14,7 +14,7 @@ PULSAR answers the question: *"What happened in my tenant, when, and by whom?"*
 It pulls audit data from three Microsoft sources:
 
 1. **Entra directory audit logs** — via Microsoft Graph (`AuditLog.Read.All`)
-2. **Intune audit logs** — via Microsoft Graph (`DeviceManagementConfiguration.Read.All`)
+2. **Intune audit logs** — via Microsoft Graph (`DeviceManagementApps.Read.All`)
 3. **Exchange, SharePoint, Teams admin audits** — via Office 365 Management Activity API (`ActivityFeed.Read`)
 
 Raw events are normalised into a common schema, stored in MongoDB, and made searchable through a FastAPI backend with a vanilla JS/Alpine.js frontend. Optional features include OIDC Bearer auth, rule-based alerting, SIEM forwarding, and an MCP (Model Context Protocol) server for Claude Desktop / Cursor integration.
@@ -123,7 +123,7 @@ pulsar/
 │   ├── nginx.conf            # Standalone reverse proxy config
 │   └── ssl/                  # TLS certificate mount point
 ├── docker-compose.yml        # Dev: build backend from source
-├── docker-compose.prod.yml   # Prod: pull from GHCR, healthchecks, internal network
+├── docker-compose.prod.yml   # Prod: pull from GHCR, healthchecks, internal DB network
 ├── .env.example              # Full configuration template
 ├── pyproject.toml            # ruff + pytest configuration
 ├── VERSION                   # SemVer string
@@ -291,7 +291,7 @@ PULSAR handles sensitive audit data and admin credentials. The following defence
 
 - The Docker image runs as a non-root user (`pulsar:pulsar`, uid/gid 10001), with hash-locked dependencies and a digest-pinned base image. CI scans it with Trivy.
 - The app connects to MongoDB as `pulsar` (`deploy/mongo-init`): readWrite on events, insert-only on the audit trail (`AUDIT_DB_NAME`). Valkey requires a password.
-- Production Docker Compose uses an `internal: true` network so only the backend is reachable from the host (via `127.0.0.1:8000`).
+- Production Docker Compose puts MongoDB and Valkey on an `internal: true` network (`pulsar-internal`); only the backend is also on `pulsar-edge`, which gives it the published `127.0.0.1:8000` port and outbound access to Microsoft.
 - MongoDB and Valkey are never exposed to the host in production.
 
 ---
@@ -312,14 +312,14 @@ docker compose up --build
 ### Production (pre-built image)
 
 ```bash
-export PULSAR_VERSION=v2.0.0  # or see VERSION
+export PULSAR_VERSION=v2.0.1  # or see VERSION
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
 - Uses image `ghcr.io/cqrenet/pulsar:${PULSAR_VERSION:-latest}`
 - Healthchecks on all three services
-- `pulsar-internal` network is marked `internal: true`
+- `pulsar-internal` (mongo, redis, backend) is marked `internal: true`; the backend also joins `pulsar-edge` for ingress and egress
 - Backend binds to `127.0.0.1:8000` only — **always place a reverse proxy in front**
 
 ### Reverse proxy
