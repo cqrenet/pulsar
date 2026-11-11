@@ -4,6 +4,10 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-11-11
+
+**Major release with breaking changes.** Existing installs must follow [Upgrading from 1.4.x](DEPLOY.md#upgrading-from-14x): new Entra app registration and ingestion certificate, `MONGO_APP_PASSWORD` / `REDIS_PASSWORD`, `AUTH_SCOPE`, and the one-time MongoDB user setup. Audit-trail `action` values are now semantic names (see below), so update any audit queries that filter on `post`/`patch`/`delete`.
+
 ### Changed (refactor)
 
 - **Fix:** `/api/alerts/summary` now applies the same privacy filter as `/api/alerts`.
