@@ -5,12 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PULSAR</title>
   <link rel="stylesheet" href="/style.css?v=21" />
-  <script src="/app.js?v=3"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.12/dist/cdn.min.js" integrity="sha384-pb6hrQvo4s23cEUFtj0CZkzGE3jyK3pj26RIupXXxhSrrcUA/Cn0lZgcCrGH0t6L" crossorigin="anonymous"></script>
+  <script src="/js/api.js?v=1"></script>
+  <script src="/js/auth.js?v=1"></script>
+  <script src="/js/ui.js?v=1"></script>
+  <script src="/js/events.js?v=1"></script>
+  <script src="/js/alerts.js?v=1"></script>
+  <script src="/js/timeline.js?v=1"></script>
+  <script src="/app.js?v=6"></script>
+  <!-- CSP build: evaluates templates without eval, so the CSP can forbid 'unsafe-eval' (tests/test_frontend_csp.py) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/csp@3.15.12/dist/cdn.min.js" integrity="sha384-MKLWq9B+VC0W3U8kDIBEsSu8uCnQ1B0UQpRaB+F7uR5ocXFbymMUKuLRntu5LLdu" crossorigin="anonymous"></script>
   <script src="https://alcdn.msauth.net/browser/2.37.0/js/msal-browser.min.js" integrity="sha384-DUSOaqAzlZRiZxkDi8hL7hXJDZ+X39ZOAYV9ZDx44gUv9pozmcunJH02tjSFLPnW" crossorigin="anonymous"></script>
 </head>
 <body>
-<div class="app" x-data="pulsarApp()" x-init="initApp()">
+<div class="app" x-data="pulsarApp" x-init="initApp()">
 
   <!-- ── Header ── -->
   <header class="app-header">
@@ -36,7 +43,7 @@
         <span
           class="health-dot"
           :class="'health-dot--' + (src.status === 'healthy' ? 'healthy' : src.status === 'error' ? 'error' : src.last_fetch_time ? 'warning' : 'never')"
-          :title="src.source + ': ' + src.status + (src.last_fetch_time ? ' · ' + new Date(src.last_fetch_time).toLocaleString() : '')"
+          :title="sourceTitle(src)"
         ></span>
       </template>
     </div>
@@ -47,7 +54,7 @@
 
     <!-- Theme toggle -->
     <div class="theme-toggle" @click.outside="showThemeMenu = false">
-      <button class="btn btn--ghost btn--sm theme-toggle__btn" @click="showThemeMenu = !showThemeMenu" :title="'Theme: ' + theme" x-html="themeIcon()"></button>
+      <button class="btn btn--ghost btn--sm theme-toggle__btn" @click="showThemeMenu = !showThemeMenu" :title="'Theme: ' + theme"><span x-show="theme === 'light'"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"/></svg></span><span x-show="theme === 'dark'"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M13.5 9.5a5.5 5.5 0 11-7-7 4.5 4.5 0 007 7z"/></svg></span><span x-show="theme === 'auto'"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.5"/><path d="M8 3V1M8 15v-2M3 8H1m14 0h-2M4.34 4.34L2.93 2.93m10.14 10.14l-1.41-1.41M4.34 11.66l-1.41 1.41m10.14-10.14l-1.41 1.41"/></svg></span></button>
       <div class="dropdown-menu theme-toggle__menu" x-show="showThemeMenu">
         <button :class="{active: theme === 'light'}" @click="setTheme('light')">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06"/></svg>
@@ -71,12 +78,12 @@
           <span class="user-name" x-text="(account.name || account.username || '').split(' ')[0]"></span>
         </div>
       </template>
-      <template x-if="!account && authConfig?.auth_enabled">
+      <template x-if="!account && authEnabled()">
         <span class="login-hint">Not signed in</span>
       </template>
       <button class="btn btn--ghost btn--sm" @click="fetchLogs()" title="Fetch latest audit logs from Microsoft">Fetch</button>
-      <button class="btn btn--ghost btn--sm" @click="resetPagination(); loadEvents()" title="Refresh current view">Refresh</button>
-      <button class="btn btn--ghost btn--sm" x-text="authBtnText" @click="toggleAuth()" x-show="authConfig?.auth_enabled"></button>
+      <button class="btn btn--ghost btn--sm" @click="applyFilters()" title="Refresh current view">Refresh</button>
+      <button class="btn btn--ghost btn--sm" x-text="authBtnText" @click="toggleAuth()" x-show="authEnabled()"></button>
     </div>
   </header>
 
@@ -86,11 +93,11 @@
       Events
       <span class="tab-badge" x-show="countText && activeTab==='events'" x-text="countText"></span>
     </button>
-    <button class="tab-btn" :class="{active: activeTab==='alerts'}" @click="activeTab='alerts'; loadAlerts()">
+    <button class="tab-btn" :class="{active: activeTab==='alerts'}" @click="openTab('alerts')">
       Alerts
       <span class="tab-badge tab-badge--warn" x-show="alertSummary.total_open > 0" x-text="alertSummary.total_open"></span>
     </button>
-    <button class="tab-btn" :class="{active: activeTab==='rules'}" @click="activeTab='rules'; loadRules()">
+    <button class="tab-btn" :class="{active: activeTab==='rules'}" @click="openTab('rules')">
       Rules
     </button>
   </nav>
@@ -180,7 +187,7 @@
                             <span class="tag" x-text="tag"></span>
                           </template>
                           <input class="tag-input" type="text" placeholder="+ tag"
-                            @keydown.enter="addTag(evt, $event.target.value); $event.target.value=''" />
+                            @keydown.enter="addTag(evt, $event.target)" />
                         </div>
                       </div>
                     </div>
@@ -222,7 +229,7 @@
             <path d="M10.5 10.5L14 14"/>
           </svg>
           <input class="filter-input" type="text" placeholder="Search events…" x-model="filters.search"
-            @keydown.enter="resetPagination(); loadEvents()" />
+            @keydown.enter="applyFilters()" />
         </div>
 
         <!-- Service multi-select dropdown -->
@@ -235,8 +242,8 @@
           </button>
           <div class="dropdown-panel" x-show="showServiceDropdown" @click.stop>
             <div class="dropdown-panel__head">
-              <button class="btn btn--ghost btn--sm" @click="filters.selectedServices = [...options.services]">All</button>
-              <button class="btn btn--ghost btn--sm" @click="filters.selectedServices = []">None</button>
+              <button class="btn btn--ghost btn--sm" @click="selectAllServices()">All</button>
+              <button class="btn btn--ghost btn--sm" @click="clearServices()">None</button>
             </div>
             <div class="dropdown-panel__options">
               <template x-for="svc in options.services" :key="svc">
@@ -250,7 +257,7 @@
         </div>
 
         <!-- Result filter -->
-        <select class="filter-select" x-model="filters.result" @change="resetPagination(); loadEvents()">
+        <select class="filter-select" x-model="filters.result" @change="applyFilters()">
           <option value="">All results</option>
           <option value="success">Success</option>
           <option value="failure">Failure</option>
@@ -260,7 +267,7 @@
         <input class="filter-input filter-input--date" type="datetime-local" x-model="filters.start" title="From date" />
         <input class="filter-input filter-input--date" type="datetime-local" x-model="filters.end" title="To date" />
 
-        <button class="btn btn--primary btn--sm" @click="resetPagination(); loadEvents()">Apply</button>
+        <button class="btn btn--primary btn--sm" @click="applyFilters()">Apply</button>
         <button class="btn btn--ghost btn--sm" @click="clearFilters()" title="Clear all filters">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M1 1l10 10M11 1L1 11"/></svg>
         </button>
@@ -303,8 +310,8 @@
               <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M2 3l3 4 3-4z"/></svg>
             </button>
             <div class="dropdown-menu" x-show="showExportMenu">
-              <button @click="exportJSON(); showExportMenu=false">Export JSON</button>
-              <button @click="exportCSV(); showExportMenu=false">Export CSV</button>
+              <button @click="exportJSON()">Export JSON</button>
+              <button @click="exportCSV()">Export CSV</button>
             </div>
           </div>
         </div>
@@ -410,7 +417,7 @@
                             <span class="tag" x-text="tag"></span>
                           </template>
                           <input class="tag-input" type="text" placeholder="+ tag"
-                            @keydown.enter="addTag(evt, $event.target.value); $event.target.value=''"
+                            @keydown.enter="addTag(evt, $event.target)"
                             @keydown.escape="$event.target.blur()" />
                         </div>
                       </div>
@@ -427,7 +434,7 @@
                         </div>
                       </div>
                       <input class="filter-input comment-input" type="text" placeholder="Add a comment…"
-                        @keydown.enter="addComment(evt, $event.target.value); $event.target.value=''"
+                        @keydown.enter="addComment(evt, $event.target)"
                         @keydown.escape="$event.target.blur()" />
                     </div>
                   </div>
@@ -469,14 +476,14 @@
   <!-- ─────────────────── Alerts Tab ─────────────────── -->
   <div class="tab-content" x-show="activeTab === 'alerts'">
     <div class="section-toolbar">
-      <select class="filter-select" x-model="alertsFilter.status" @change="alertsPage=1; loadAlerts()">
+      <select class="filter-select" x-model="alertsFilter.status" @change="alertsGoTo(1)">
         <option value="">All statuses</option>
         <option value="open">Open</option>
         <option value="acknowledged">Acknowledged</option>
         <option value="resolved">Resolved</option>
         <option value="false_positive">False positive</option>
       </select>
-      <select class="filter-select" x-model="alertsFilter.severity" @change="alertsPage=1; loadAlerts()">
+      <select class="filter-select" x-model="alertsFilter.severity" @change="alertsGoTo(1)">
         <option value="">All severities</option>
         <option value="high">High</option>
         <option value="medium">Medium</option>
@@ -513,9 +520,9 @@
     </div>
 
     <div class="pagination" x-show="alertsTotal > 20">
-      <button class="btn btn--ghost btn--sm" :disabled="alertsPage === 1" @click="alertsPage--; loadAlerts()">← Prev</button>
+      <button class="btn btn--ghost btn--sm" :disabled="alertsPage === 1" @click="alertsGoTo(alertsPage - 1)">← Prev</button>
       <span x-text="'Page ' + alertsPage"></span>
-      <button class="btn btn--ghost btn--sm" :disabled="alertsPage * 20 >= alertsTotal" @click="alertsPage++; loadAlerts()">Next →</button>
+      <button class="btn btn--ghost btn--sm" :disabled="alertsPage * 20 >= alertsTotal" @click="alertsGoTo(alertsPage + 1)">Next →</button>
     </div>
   </div>
 
