@@ -15,7 +15,7 @@ tenacity
 prometheus-client
 httpx
 gunicorn
-mcp<2  # 2.x renamed FastMCP and changed the SSE APIs: upgrade as its own change, not via a lock refresh
+mcp<3  # 2.x renamed FastMCP and changed the SSE APIs: upgrade as its own change, not via a lock refresh
 redis
 
 # Optional: Azure Key Vault integration for secrets storage
