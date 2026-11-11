@@ -13,9 +13,12 @@ breaks SSE (an infinite streaming response).  The raw class passes scope/receive
 through unmodified and never buffers anything.
 """
 
+import hmac
+
 import structlog
-from auth import AUTH_ALLOWED_GROUPS, AUTH_ALLOWED_ROLES, AUTH_ENABLED, _allowed, _decode_token, _get_jwks_async
-from config import MCP_API_KEY
+from auth import verify_bearer
+from config import AUTH_ENABLED, MCP_API_KEY
+from fastapi import HTTPException
 from mcp_tools import mcp
 
 logger = structlog.get_logger("pulsar.mcp")
@@ -24,23 +27,19 @@ _UNAUTHORIZED = b"Unauthorized"
 _FORBIDDEN = b"Forbidden"
 
 
-def _reject(status: int, body: bytes):
-    """Return a minimal ASGI send sequence for a plain-text error response."""
-
-    async def _send_rejection(send):
-        await send(
-            {
-                "type": "http.response.start",
-                "status": status,
-                "headers": [
-                    [b"content-type", b"text/plain; charset=utf-8"],
-                    [b"content-length", str(len(body)).encode()],
-                ],
-            }
-        )
-        await send({"type": "http.response.body", "body": body})
-
-    return _send_rejection
+async def _reject(send, status: int, body: bytes) -> None:
+    """Send a minimal plain-text error response."""
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                [b"content-type", b"text/plain; charset=utf-8"],
+                [b"content-length", str(len(body)).encode()],
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 class _McpAuthMiddleware:
@@ -57,6 +56,11 @@ class _McpAuthMiddleware:
     def __init__(self, app) -> None:
         self.app = app
 
+    async def _forward(self, user: dict, scope, receive, send) -> None:
+        # Tools read the caller from request.state.user to apply privacy filtering and audit logging.
+        scope.setdefault("state", {})["user"] = user
+        await self.app(scope, receive, send)
+
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
@@ -70,39 +74,39 @@ class _McpAuthMiddleware:
 
         # 1. API key path — fast, no Entra round-trip
         if MCP_API_KEY:
-            if token == MCP_API_KEY:
+            if hmac.compare_digest(token.encode(), MCP_API_KEY.encode()):
                 logger.info("MCP SSE connection via API key")
-                await self.app(scope, receive, send)
+                # A shared key carries no roles, so privacy-gated data stays hidden from it.
+                await self._forward({"sub": "mcp-api-key"}, scope, receive, send)
                 return
             # Key is configured but didn't match — fall through to OIDC only if enabled,
             # otherwise reject (avoids leaking that a key is configured).
             if not AUTH_ENABLED:
                 logger.warning("MCP auth failed: invalid API key")
-                await _reject(401, _UNAUTHORIZED)(send)
+                await _reject(send, 401, _UNAUTHORIZED)
                 return
 
         # 2. Entra JWT path
         if AUTH_ENABLED:
             if not token:
-                await _reject(401, _UNAUTHORIZED)(send)
+                await _reject(send, 401, _UNAUTHORIZED)
                 return
             try:
-                jwks = await _get_jwks_async()
-                claims = _decode_token(token, jwks)
+                claims = await verify_bearer(token)
+            except HTTPException as exc:
+                logger.warning("MCP OIDC auth failed", status=exc.status_code, detail=exc.detail)
+                await _reject(send, exc.status_code, _FORBIDDEN if exc.status_code == 403 else _UNAUTHORIZED)
+                return
             except Exception as exc:
                 logger.warning("MCP OIDC auth failed", error=str(exc))
-                await _reject(401, _UNAUTHORIZED)(send)
-                return
-            if not _allowed(claims, AUTH_ALLOWED_ROLES, AUTH_ALLOWED_GROUPS):
-                logger.warning("MCP OIDC auth forbidden", sub=claims.get("sub"))
-                await _reject(403, _FORBIDDEN)(send)
+                await _reject(send, 401, _UNAUTHORIZED)
                 return
             logger.info("MCP SSE connection via Entra JWT", sub=claims.get("sub", "unknown"))
-            await self.app(scope, receive, send)
+            await self._forward(claims, scope, receive, send)
             return
 
         # No auth configured — open access (warn once at startup, handled in main.py)
-        await self.app(scope, receive, send)
+        await self._forward({"sub": "anonymous"}, scope, receive, send)
 
 
 def build_mcp_app():

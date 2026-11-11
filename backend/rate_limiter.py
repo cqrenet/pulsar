@@ -6,6 +6,7 @@ import structlog
 from config import RATE_LIMIT_ENABLED, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SECONDS
 from fastapi import HTTPException, Request
 from redis_client import get_redis
+from utils.net import client_ip
 
 logger = structlog.get_logger("pulsar.rate_limit")
 
@@ -20,36 +21,29 @@ class RateLimitExceeded(HTTPException):
 
 
 def _get_identifier(request: Request) -> str:
-    """Best-effort client identifier: authenticated sub, or X-Forwarded-For, or client host."""
-    user = getattr(request.state, "user", None)
-    if user and isinstance(user, dict):
-        sub = user.get("sub")
-        if sub and sub != "anonymous":
-            return f"user:{sub}"
+    """Client identifier. Runs before auth, so it is the client IP (trusted-proxy aware, not spoofable)."""
+    return f"ip:{client_ip(request) or 'unknown'}"
 
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return f"ip:{forwarded.split(',')[0].strip()}"
 
-    return f"ip:{request.client.host if request.client else 'unknown'}"
+# Path prefix -> category, first match wins. Everything else is "default".
+_PATH_CATEGORIES = (("/api/fetch", "fetch"), ("/api/events/bulk-tags", "write"))
+
+# Category -> (max requests, window seconds). "default" comes from configuration.
+_CATEGORY_LIMITS = {
+    "fetch": (10, 3600),  # 10 per hour
+    "write": (20, 60),  # 20 per minute
+    "default": (RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SECONDS),
+}
 
 
 def _get_path_category(path: str) -> str:
     """Bucket paths into rate-limit categories."""
-    if path.startswith("/api/fetch"):
-        return "fetch"
-    if path.startswith("/api/events/bulk-tags"):
-        return "write"
-    return "default"
+    return next((cat for prefix, cat in _PATH_CATEGORIES if path.startswith(prefix)), "default")
 
 
 def _limit_for_category(category: str) -> tuple[int, int]:
     """Return (max_requests, window_seconds) for a category."""
-    if category == "fetch":
-        return (10, 3600)  # 10 per hour
-    if category == "write":
-        return (20, 60)  # 20 per minute
-    return (RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SECONDS)
+    return _CATEGORY_LIMITS[category]
 
 
 async def check_rate_limit(request: Request):

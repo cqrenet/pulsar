@@ -1,25 +1,24 @@
 import asyncio
-import contextvars
+import json
 import threading
 import time
 
 import requests
 import structlog
 from config import (
+    AUTH_ADMIN_ROLES,
     AUTH_ALLOWED_GROUPS,
     AUTH_ALLOWED_ROLES,
     AUTH_CLIENT_ID,
     AUTH_ENABLED,
     AUTH_TENANT_ID,
+    PRIVACY_SENSITIVE_OPERATIONS,
     PRIVACY_SERVICE_ROLES,
     PRIVACY_SERVICES,
 )
-from fastapi import Header, HTTPException
-from jwt import ExpiredSignatureError, InvalidTokenError, decode
+from fastapi import Depends, Header, HTTPException, Request
+from jwt import ExpiredSignatureError, InvalidTokenError, decode, get_unverified_header
 from jwt.algorithms import RSAAlgorithm
-
-# Thread-/task-local storage for verified auth claims (used by audit middleware)
-_auth_context: contextvars.ContextVar[dict | None] = contextvars.ContextVar("auth_context", default=None)
 
 JWKS_CACHE = {"exp": 0, "keys": []}
 _jwks_lock = threading.Lock()
@@ -55,10 +54,14 @@ async def _get_jwks_async() -> list:
     return await asyncio.to_thread(_get_jwks)
 
 
+def _roles(claims: dict) -> set[str]:
+    return set(claims.get("roles") or claims.get("role") or [])
+
+
 def _allowed(claims: dict, allowed_roles: set[str], allowed_groups: set[str]) -> bool:
     if not allowed_roles and not allowed_groups:
         return True
-    roles = set(claims.get("roles", []) or claims.get("role", []) or [])
+    roles = _roles(claims)
     groups = set(claims.get("groups", []) or [])
     return bool(
         (allowed_roles and roles.intersection(allowed_roles))
@@ -68,10 +71,6 @@ def _allowed(claims: dict, allowed_roles: set[str], allowed_groups: set[str]) ->
 
 def _decode_token(token: str, jwks):
     try:
-        import json
-
-        from jwt import get_unverified_header
-
         header = get_unverified_header(token)
         kid = header.get("kid")
         key_dict = next((k for k in jwks if k.get("kid") == kid), None)
@@ -94,6 +93,10 @@ def _decode_token(token: str, jwks):
             raise HTTPException(status_code=401, detail="Invalid tenant")
         if AUTH_TENANT_ID and AUTH_TENANT_ID not in iss:
             raise HTTPException(status_code=401, detail="Invalid issuer")
+        # ID tokens share our audience and signing keys but are not API credentials.
+        # Entra access tokens always name the calling client (v2 "azp", v1 "appid"); ID tokens never do.
+        if not (claims.get("azp") or claims.get("appid")):
+            raise HTTPException(status_code=401, detail="Invalid token: access token required")
         return claims
     except HTTPException:
         raise
@@ -108,29 +111,60 @@ def _decode_token(token: str, jwks):
         raise HTTPException(status_code=401, detail=f"Invalid token ({type(exc).__name__})") from None
 
 
-def user_can_access_privacy_services(claims: dict) -> bool:
-    """Check if the user has roles that grant access to privacy-sensitive services."""
-    if not PRIVACY_SERVICES or not PRIVACY_SERVICE_ROLES:
+def user_can_access_privacy_services(claims: dict | None) -> bool:
+    """Check if the user has roles that grant access to privacy-sensitive services.
+
+    Fails closed: when privacy services/operations are configured, only PRIVACY_SERVICE_ROLES see them.
+    """
+    if not PRIVACY_SERVICES and not PRIVACY_SENSITIVE_OPERATIONS:
         return True
-    user_roles = set(claims.get("roles", []) or claims.get("role", []) or [])
-    return bool(user_roles.intersection(PRIVACY_SERVICE_ROLES))
+    claims = claims or {}
+    return bool(_roles(claims).intersection(PRIVACY_SERVICE_ROLES))
 
 
-async def require_auth(authorization: str | None = Header(None)):
+def apply_privacy_filter(query: dict, claims: dict | None) -> dict:
+    """Return `query` narrowed so the caller cannot see privacy-gated services or operations."""
+    if user_can_access_privacy_services(claims):
+        return query
+    hidden = {}
+    if PRIVACY_SERVICES:
+        hidden["service"] = {"$nin": sorted(PRIVACY_SERVICES)}
+    if PRIVACY_SENSITIVE_OPERATIONS:
+        hidden["operation"] = {"$nin": sorted(PRIVACY_SENSITIVE_OPERATIONS)}
+    return {"$and": [query, hidden]} if query else hidden
+
+
+async def require_auth(authorization: str | None = Header(None), request: Request = None):
+    user = await _authenticate(authorization)
+    if request is not None:
+        # Read by the audit middleware. A contextvar would not work: BaseHTTPMiddleware runs the
+        # endpoint in a child task, so values set here never reach the middleware.
+        request.state.user = user
+    return user
+
+
+async def require_admin(user: dict = Depends(require_auth)) -> dict:
+    """Gate configuration changes (alert rules, manual fetch) behind AUTH_ADMIN_ROLES."""
+    if AUTH_ENABLED and not _allowed(user, AUTH_ADMIN_ROLES, set()):
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return user
+
+
+async def verify_bearer(token: str) -> dict:
+    """Validate an Entra access token and the allowed role/group policy.
+
+    Raises HTTPException: 401 for a bad token, 403 for a valid token without access.
+    """
+    claims = _decode_token(token, await _get_jwks_async())
+    if not _allowed(claims, AUTH_ALLOWED_ROLES, AUTH_ALLOWED_GROUPS):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return claims
+
+
+async def _authenticate(authorization: str | None) -> dict:
     if not AUTH_ENABLED:
-        user = {"sub": "anonymous"}
-        _auth_context.set(user)
-        return user
+        return {"sub": "anonymous"}
 
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
-
-    token = authorization.split(" ", 1)[1]
-    jwks = await _get_jwks_async()
-    claims = _decode_token(token, jwks)
-
-    if not _allowed(claims, AUTH_ALLOWED_ROLES, AUTH_ALLOWED_GROUPS):
-        raise HTTPException(status_code=403, detail="Forbidden")
-
-    _auth_context.set(claims)
-    return claims
+    return await verify_bearer(authorization.split(" ", 1)[1])
