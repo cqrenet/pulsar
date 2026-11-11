@@ -32,8 +32,7 @@ Raw events are normalised into a common schema, stored in MongoDB, and made sear
 | Server | Gunicorn + Uvicorn workers (production) |
 | Database | MongoDB 7 (default database `micro_soc`, collection `events`) |
 | Cache / Rate Limiting | Valkey/Redis 8 |
-| Background Jobs | `arq` (Redis-based job queue — stubbed, not yet active) |
-| Frontend | Vanilla HTML/CSS/JS with Alpine.js 3.x |
+| Frontend | Vanilla HTML/CSS/JS with Alpine.js 3.x (CSP build: no `unsafe-eval`, one expression per attribute) |
 | Auth | Microsoft Entra OIDC Bearer tokens (optional) |
 | Logging | `structlog` (structured JSON logging) |
 | Metrics | `prometheus-client` |
@@ -53,11 +52,14 @@ pulsar/
 │   ├── ci.yml                # Lint, format-check, pytest on push/PR to main
 │   └── release.yml           # Build & push Docker image to GHCR on version tags
 ├── backend/
-│   ├── main.py               # FastAPI app factory, middleware, startup/shutdown
+│   ├── main.py               # FastAPI app factory: routers, lifespan, startup checks
+│   ├── middleware.py         # Correlation ID, metrics, security headers, rate limit, audit middleware
+│   ├── ingest.py             # Fetch → normalise → upsert → alert → SIEM pipeline (+ SOURCES registry)
+│   ├── queries.py            # EventFilters (query params → Mongo query), cursors, summaries
+│   ├── default_rules.yml     # Alert rules seeded at startup (existing rules are never overwritten)
 │   ├── config.py             # Pydantic-settings based configuration
 │   ├── database.py           # MongoDB client, collections, index setup
 │   ├── auth.py               # OIDC Bearer token validation
-│   ├── middleware.py         # Correlation ID middleware
 │   ├── metrics.py            # Prometheus metrics
 │   ├── rate_limiter.py       # Redis-backed fixed-window rate limiting
 │   ├── audit_trail.py        # Audit logging for API mutations
@@ -66,19 +68,21 @@ pulsar/
 │   ├── siem.py               # SIEM forwarding logic
 │   ├── secrets_manager.py    # Azure Key Vault integration
 │   ├── watermark.py          # Incremental fetch watermark tracking
-│   ├── jobs.py               # arq worker configuration stub
 │   ├── maintenance.py        # CLI maintenance utilities (renormalize, dedupe)
 │   ├── mapping_loader.py     # YAML mapping loader
 │   ├── mappings.yml          # Service/operation display mappings
 │   ├── mcp_common.py         # MCP shared tool handlers
 │   ├── mcp_server.py         # MCP stdio server entry point
 │   ├── mcp_tools.py          # MCP tool definitions
-│   ├── requirements.txt      # Production dependencies
-│   ├── requirements-dev.txt  # Dev dependencies (pytest, mongomock, ruff)
-│   ├── Dockerfile            # Python 3.11-slim, non-root user, gunicorn
+│   ├── requirements.in       # Top-level production dependencies
+│   ├── requirements.txt      # Hashed lock generated from requirements.in (pip-compile)
+│   ├── requirements-dev.in   # Dev dependencies (pytest, mongomock, ruff, pip-audit)
+│   ├── requirements-dev.txt  # Hashed lock: prod + dev
+│   ├── Dockerfile            # Python 3.11-slim (digest-pinned), uid 10001, gunicorn
 │   ├── frontend/             # Static UI files
 │   │   ├── index.html
-│   │   ├── app.js
+│   │   ├── app.js            # assembles the Alpine component from js/*
+│   │   ├── js/               # api, auth, ui, events, alerts, timeline parts
 │   │   └── style.css
 │   ├── graph/                # Microsoft Graph API clients
 │   │   ├── audit_logs.py
@@ -94,6 +98,7 @@ pulsar/
 │   │   ├── fetch.py
 │   │   ├── health.py
 │   │   ├── mcp.py
+│   │   ├── system.py         # /health, /metrics, /api/version, OAuth discovery
 │   │   ├── rules.py
 │   │   ├── saved_searches.py
 │   │   ├── summary.py
@@ -106,9 +111,14 @@ pulsar/
 │   │   ├── test_api.py
 │   │   ├── test_auth.py
 │   │   ├── test_event_model.py
-│   │   └── test_rules.py
+│   │   ├── test_rules.py
+│   │   ├── test_security.py
+│   │   └── test_frontend_csp.py
 │   └── utils/                # Shared utilities
-│       └── http.py
+│       ├── common.py         # utc/iso helpers, literal-regex `contains`, `user_sub`
+│       ├── http.py           # retrying GET/POST, `get_json`, Graph pagination
+│       ├── net.py            # client_ip (trusted-proxy aware), network parsing
+│       └── ssrf.py           # outbound URL validation (webhooks, SIEM)
 ├── nginx/
 │   ├── nginx.conf            # Standalone reverse proxy config
 │   └── ssl/                  # TLS certificate mount point
@@ -133,8 +143,8 @@ All backend work happens inside the `backend/` directory.
 
 ```bash
 cd backend
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+pip install --require-hashes -r requirements-dev.txt   # prod + dev, hash-locked
+# Changing dependencies: edit requirements*.in, then regenerate the locks (command at the top of requirements.in)
 ```
 
 ### Run the development server
@@ -234,6 +244,8 @@ The `client` fixture is heavily patched for test isolation:
 | `test_auth.py` | Unit tests for `_allowed()` and `require_auth()` with auth enabled/disabled, JWKS cache reset fixture |
 | `test_event_model.py` | `normalize_event()` and `_make_dedupe_key()` logic |
 | `test_rules.py` | Rule condition matching (`eq`, `neq`, `contains`, `in`, `after_hours`) and `evaluate_event()` alert creation |
+| `test_security.py` | Regression tests for the security fixes: privacy filtering on every read path (REST, MCP, alerts), admin role, audit attribution, X-Forwarded-For handling, ID-token rejection, MCP input bounds, alert-card defanging, certificate client assertion, startup config checks |
+| `test_frontend_csp.py` | Templates only use syntax Alpine's CSP build supports; the served CSP has no `unsafe-eval` |
 
 ### Adding new tests
 
@@ -272,11 +284,13 @@ PULSAR handles sensitive audit data and admin credentials. The following defence
 ### Secrets management
 
 - Secrets can be loaded from Azure Key Vault before pydantic-settings reads them (`AZURE_KEY_VAULT_NAME`).
-- Key Vault secret names: `pulsar-client-secret`, `pulsar-mongo-uri`, `pulsar-webhook-client-secret`.
+- Key Vault secret names: `pulsar-mongo-uri`, `pulsar-webhook-client-secret`.
+- Two Entra apps: the **ingestion** app (`CLIENT_ID`) holds the app-only Graph/O365 permissions and authenticates with a certificate (`CLIENT_CERTIFICATE_PATH`, signed client assertion in `graph/auth.py`); the **API** app (`AUTH_CLIENT_ID`) has no credentials, defines the app roles, and requires assignment.
 
 ### Container security
 
-- The Docker image runs as a non-root user (`pulsar:pulsar`).
+- The Docker image runs as a non-root user (`pulsar:pulsar`, uid/gid 10001), with hash-locked dependencies and a digest-pinned base image. CI scans it with Trivy.
+- The app connects to MongoDB as `pulsar` (`deploy/mongo-init`): readWrite on events, insert-only on the audit trail (`AUDIT_DB_NAME`). Valkey requires a password.
 - Production Docker Compose uses an `internal: true` network so only the backend is reachable from the host (via `127.0.0.1:8000`).
 - MongoDB and Valkey are never exposed to the host in production.
 
@@ -288,7 +302,7 @@ PULSAR handles sensitive audit data and admin credentials. The following defence
 
 ```bash
 cp .env.example .env
-# Edit .env with TENANT_ID, CLIENT_ID, CLIENT_SECRET
+# Edit .env with TENANT_ID, CLIENT_ID, the Mongo/Redis passwords; put the ingestion cert in secrets/
 docker compose up --build
 ```
 
@@ -345,7 +359,8 @@ All configuration is via environment variables or a `.env` file. See `.env.examp
 |----------|---------|
 | `TENANT_ID` | Microsoft Entra tenant ID |
 | `CLIENT_ID` | App registration client ID |
-| `CLIENT_SECRET` | App registration client secret |
+| `CLIENT_CERTIFICATE_PATH` | PEM (key + cert) for the ingestion app; set by Docker Compose |
+| `MONGO_APP_PASSWORD` / `REDIS_PASSWORD` | Passwords for the app's MongoDB user and Valkey (Docker Compose) |
 | `MONGO_URI` | MongoDB connection string |
 | `REDIS_URL` | Valkey/Redis connection string |
 
@@ -356,6 +371,8 @@ Notable optional variables:
 | `AUTH_ENABLED` | Enable OIDC Bearer token protection |
 | `AUTH_TENANT_ID` / `AUTH_CLIENT_ID` / `AUTH_SCOPE` | OIDC provider config |
 | `AUTH_ALLOWED_ROLES` / `AUTH_ALLOWED_GROUPS` | Comma-separated access control lists |
+| `AUTH_ADMIN_ROLES` | Roles allowed to change alert rules and trigger fetches (empty = all signed-in users) |
+| `TRUSTED_PROXIES` | IPs/CIDRs whose `X-Forwarded-For` is trusted for metrics allowlist and rate limiting |
 | `ENABLE_PERIODIC_FETCH` / `FETCH_INTERVAL_MINUTES` | Background ingestion loop |
 | `RETENTION_DAYS` | MongoDB TTL index for automatic data expiry (0 = disabled) |
 | `CORS_ORIGINS` | Comma-separated allowed origins (default `*`) |

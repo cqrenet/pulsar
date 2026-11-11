@@ -2,6 +2,37 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [Unreleased]
+
+### Changed (refactor)
+
+- **Fix:** `/api/alerts/summary` now applies the same privacy filter as `/api/alerts`.
+- **Fix:** `MCP_ALLOWED_HOSTS` is read through the settings (so `.env` works), not only from the process environment.
+- **Fix:** Default alert rules are inserted only when missing — restarts no longer overwrite an admin's edits (e.g. a disabled rule). They now live in `default_rules.yml`. `after_hours` is documented as 09:00–17:00 UTC.
+- Event filters are one `EventFilters` dependency shared by list and bulk-tag; the MCP search reuses it. Summary aggregation is shared by REST and MCP.
+- `run_fetch` moved to `ingest.py` with a `SOURCES` registry; alert rules load once per run instead of once per event.
+- One SSRF validator for alert webhooks and SIEM; `main.py` split into `middleware.py` and `routes/system.py`; startup uses a lifespan handler.
+- Blocking MongoDB calls no longer run on the event loop (summary, saved searches, MCP tools).
+- Frontend split into `js/` parts; the query-string builder, API helpers and download helper are no longer duplicated; bulk tagging asks for `append`/`replace` explicitly; load failures show a status message.
+- Removed unused code: `arq` and `jobs.py`, `EventItem`, MCP schema constants, `threshold_count` rule operator, unused mapping helpers.
+
+### Security
+
+- **Privacy filtering on every read path** — `PRIVACY_SERVICES` / `PRIVACY_SENSITIVE_OPERATIONS` are now enforced in MCP tools, `/api/summary`, `/api/filter-options`, alerts, and tag/comment writes, not only `/api/events`. Operations-only privacy configs now work, and data is hidden from everyone when no `PRIVACY_SERVICE_ROLES` are set.
+- **Admin role** — New `AUTH_ADMIN_ROLES` gates alert-rule changes and manual fetches.
+- **Audit trail attribution** — API mutations were recorded as `anonymous` when auth was enabled; they now record the caller's `sub`. Rule changes, alert status changes, and MCP tool calls are logged explicitly.
+- **X-Forwarded-For** — Only trusted proxies (`TRUSTED_PROXIES`) are believed, read right to left. Fixes a `/metrics` allowlist bypass and rate-limit bypass via a spoofed header. `/mcp` is now rate limited.
+- **Access tokens only** — ID tokens are rejected as API credentials. **Breaking:** `AUTH_SCOPE` must be set when auth is enabled.
+- **MCP inputs** — Free-text arguments are matched literally (no regex injection / ReDoS); `limit` and `days` are bounded.
+- **Webhook** — Graph notifications are rejected unless `WEBHOOK_CLIENT_SECRET` is set; secrets and the MCP API key are compared in constant time.
+- **Two app registrations, certificate auth** — Ingestion (app-only Graph/O365 permissions) and the user-facing API are separate Entra apps. Ingestion authenticates with a certificate whose private key is generated on the server; `CLIENT_SECRET` is gone. The API app gets app roles (`PulsarReader`, `PulsarAdmin`, `PulsarPrivacyReader`) and assignment required. `bootstrap-tenant.ps1` creates both and migrates an existing app; `bootstrap-mcp-auth.ps1` is removed. **Breaking:** see DEPLOY.md, "Upgrading from 1.4.x".
+- **Fail-closed startup** — With `AUTH_ENABLED=true`, PULSAR refuses to start unless `AUTH_TENANT_ID`, `AUTH_CLIENT_ID` and `AUTH_SCOPE` are set. `AUTH_CLIENT_ID` no longer falls back to `CLIENT_ID`.
+- **Least-privilege data stores** — The app connects to MongoDB as `pulsar` (readWrite on events, insert-only on the audit trail, which moves to its own database). Valkey requires a password, kept out of process arguments. Audit records are also written to stdout.
+- **Strict CSP** — The UI uses Alpine's CSP build; the policy no longer allows `'unsafe-eval'`.
+- **Alert cards** — Display names in Teams/Slack alerts are defanged (`hxxps[:]//`, broken markdown links) so tenant-controlled names cannot post clickable phishing links.
+- **Supply chain** — Hash-locked Python dependencies (pip-compile), digest-pinned images, SHA-pinned GitHub Actions, Dependabot, `pip-audit` and a Trivy image scan in CI and before release. `mcp` is pinned below 2.0: an unpinned build would have pulled 2.x, which renamed `FastMCP`. The image applies Debian security updates and drops setuptools. The container runs as uid 10001.
+- **Smaller fixes** — CSV export neutralises spreadsheet formulas; tags are limited to 100 characters; invalid IDs return 400/404 instead of 500; CSP allows exact CDN library paths only; HSTS header added; unused `python-jose` removed; `.dockerignore` added.
+
 ## [1.4.0] — 2026-06-08
 
 ### Added
