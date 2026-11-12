@@ -53,3 +53,27 @@ jobs:
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
             image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed --no-progress pulsar:ci
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0 # scan the whole history, not only the tip
+
+      - name: Scan history for secrets (gitleaks)
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" \
+            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            detect --source /repo --no-banner --redact
+
+  config-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Scan the Dockerfile for misconfigurations (Trivy)
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" \
+            aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb \
+            config --exit-code 1 --severity HIGH,CRITICAL /repo

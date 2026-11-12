@@ -16,6 +16,7 @@ All notable changes to PULSAR will be documented here.
 - **Outbound HTTP:** alert webhooks, SIEM forwarding and all Graph/Office 365 calls no longer follow redirects, and webhook/SIEM deliveries count only 2xx as success. Upstream JSON responses are read with a 10 MiB limit, and Office 365 audit `contentUri` values must be HTTPS on a Microsoft Management API host. Failed Office 365 listings no longer put the upstream response text in errors.
 - **Inbound webhook:** the Graph notification endpoint reads at most 256 KiB and 100 notifications per request and rejects malformed structures.
 - **Database load:** summaries, filter options and counts run with a 5 s server-side time limit.
+- **CI:** CodeQL (Python and JavaScript, `security-extended`, weekly and on every PR), a gitleaks scan of the full history, and a Trivy Dockerfile misconfiguration scan join lint, tests, `pip-audit` and the image scan.
 - **Tests:** every `/api` route must require auth except a short allow-list, and the set of admin-only routes is pinned.
 
 ## [2.0.1] — 2026-11-11
