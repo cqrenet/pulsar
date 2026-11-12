@@ -11,9 +11,9 @@ PULSAR ingests Microsoft 365 admin audit events into MongoDB and exposes a UI, R
 - Microsoft Graph client for Entra directory and Intune audit events.
 - Office 365 Management Activity API client for Exchange/SharePoint/Teams audit logs.
 - Frontend served from the backend for filtering, searching, and reviewing events.
-- Optional OIDC Bearer auth (Entra) to protect the API/UI and gate access by roles/groups.
+- Entra ID sign-in (access tokens) for the UI, API and MCP endpoint, with app roles. Required: PULSAR refuses to start without it unless `ALLOW_UNAUTHENTICATED=true` is set for local development.
 - MCP server for Claude Desktop / Cursor integration (stdio and HTTP/SSE transports).
-- Optional Azure Key Vault integration for secrets storage.
+- Optional Azure Key Vault loader for secrets (needs a custom image build, see below).
 
 ## Prerequisites
 
@@ -44,7 +44,9 @@ The script creates two app registrations: **PULSAR Ingestion** (application perm
 
 ```bash
 cp .env.example .env
-# Paste the lines printed by the bootstrap script, and set the passwords (openssl rand -hex 32)
+cp .env.db.example .env.db && chmod 600 .env .env.db
+# .env: paste the lines printed by the bootstrap script and set MONGO_APP_PASSWORD and REDIS_PASSWORD.
+# .env.db: set MONGO_INITDB_ROOT_PASSWORD. Generate each with: openssl rand -hex 32
 docker compose up --build
 ```
 
@@ -91,42 +93,45 @@ Instead of storing secrets in `.env`, store them in Azure Key Vault:
 | `pulsar-mongo-uri`           | `MONGO_URI`             |
 | `pulsar-webhook-client-secret` | `WEBHOOK_CLIENT_SECRET` |
 
-Set `AZURE_KEY_VAULT_NAME=your-keyvault-name`, add `azure-identity` and `azure-keyvault-secrets` to `backend/requirements.in`, and regenerate the lock file (command at the top of that file). The ingestion certificate is a file, not a Key Vault secret here: mount it and set `CLIENT_CERTIFICATE_PATH`.
+The published image does not include the Azure SDK, so this needs your own build: add `azure-identity` and `azure-keyvault-secrets` to `backend/requirements.in`, regenerate the lock file (command at the top of that file), build the image, and set `AZURE_KEY_VAULT_NAME=your-keyvault-name`. On the published image, setting `AZURE_KEY_VAULT_NAME` stops startup with an error. Platform secret references (as the Azure Container Apps script uses) need none of this. The ingestion certificate is a file, not a Key Vault secret here: mount it and set `CLIENT_CERTIFICATE_PATH`.
 
-## Security Hardening Checklist
+## Security
 
-Before deploying to production:
-
-- [ ] Set `AUTH_ENABLED=true` and configure `AUTH_ALLOWED_ROLES` or `AUTH_ALLOWED_GROUPS`
-- [ ] Set `AUTH_ADMIN_ROLES` and `PRIVACY_SERVICE_ROLES`, and assign the app roles to users in Entra
-- [ ] Keep `secrets/pulsar-ingestion.pem` owned by uid 10001 with mode 400
-- [ ] Set explicit `CORS_ORIGINS` (never use `*` with auth enabled)
-- [ ] Set `DOCS_ENABLED=false` (default) to hide OpenAPI docs
-- [ ] Configure `WEBHOOK_CLIENT_SECRET` to validate Graph webhook notifications
-- [ ] Set `SIEM_ALLOWED_DOMAINS` if using SIEM forwarding
-- [ ] Review `METRICS_ALLOWED_IPS` — defaults to private networks only
-- [ ] Set `MCP_ALLOWED_HOSTS` if exposing the MCP SSE endpoint behind a reverse proxy
-- [ ] Consider Azure Key Vault instead of `.env` for secrets
+- **Reviewing PULSAR?** Start with [docs/security/README.md](docs/security/README.md): scope, code map, a local
+  sandbox, and the [known issues](docs/security/known-issues.md) we already know about.
+- **Deploying it?** Work through the hardening checklist in
+  [docs/security/operations.md](docs/security/operations.md#6-hardening-checklist-for-a-new-deployment). The most
+  important items: set `TRUSTED_PROXIES` to your reverse proxy's address, assign app roles, and decide retention.
+- **Found a vulnerability?** See [SECURITY.md](SECURITY.md).
 
 ## API Reference
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /health` | Health check with MongoDB connectivity |
-| `GET /metrics` | Prometheus metrics (IP-restricted) |
-| `GET /api/version` | Running version |
-| `GET /api/fetch-audit-logs` | Pull latest audit events (incremental, watermark-based) |
-| `GET /api/events` | List events with filters: `service`, `actor`, `operation`, `result`, `start`, `end`, `search` |
-| `GET /api/summary` | Aggregated activity summary: top services, operations, results, actors |
-| `GET /api/filter-options` | Distinct values for UI dropdowns |
-| `GET /api/source-health` | Last fetch status per source |
-| `PATCH /api/events/{id}/tags` | Update event tags |
-| `POST /api/events/{id}/comments` | Add a comment to an event |
-| `POST /api/webhooks/graph` | Receive Microsoft Graph change notifications |
-| `GET /api/rules` | List alert rules |
-| `POST /api/rules` | Create an alert rule |
-| `PUT /api/rules/{id}` | Update an alert rule |
-| `DELETE /api/rules/{id}` | Delete an alert rule |
+*Auth* is what the caller needs: **none**, **user** (any signed-in user with an allowed role) or **admin**
+(`AUTH_ADMIN_ROLES`). Privacy-gated services and operations are hidden from users without `PRIVACY_SERVICE_ROLES` on
+every read.
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /health` | none | Health check with MongoDB connectivity |
+| `GET /metrics` | none (IP allowlist) | Prometheus metrics |
+| `GET /api/version` | none | Running version |
+| `GET /api/config/auth`, `GET /api/config/features` | none | Public sign-in parameters for the browser (tenant ID, client ID, scope) |
+| `GET /.well-known/oauth-authorization-server` | none | OAuth discovery for MCP clients (when `MCP_CLIENT_ID` is set) |
+| `POST /api/webhooks/graph` | `clientState` | Graph change notifications: validated and logged, nothing is ingested |
+| `GET /api/events` | user | List events with filters: `services`, `actor`, `operation`, `result`, `start`, `end`, `search`, `correlation_id`, `include_tags`, `exclude_tags`, cursor paging |
+| `GET /api/filter-options` | user | Distinct values for UI dropdowns |
+| `GET /api/summary` | user | Aggregated activity: top services, operations, results, actors |
+| `GET /api/source-health` | user | Last fetch status per source |
+| `PATCH /api/events/{id}/tags` | user | Replace an event's tags |
+| `POST /api/events/{id}/comments` | user | Add a comment |
+| `POST /api/events/bulk-tags` | user | Tag every event matching the filters (max 10 000) |
+| `GET/POST /api/saved-searches`, `DELETE /api/saved-searches/{id}` | user | The caller's own saved filters |
+| `GET /api/alerts`, `GET /api/alerts/summary` | user | Alerts and counts |
+| `PATCH /api/alerts/{id}/status` | user | Set alert status |
+| `GET /api/rules` | user | List alert rules |
+| `POST /api/rules`, `PUT /api/rules/{id}`, `DELETE /api/rules/{id}` | admin | Manage alert rules |
+| `GET /api/fetch-audit-logs` | admin | Pull the latest audit events now (incremental, watermark-based) |
+| `/mcp/sse`, `/mcp/messages/` | API key or user | MCP over SSE (see below) |
 
 ## MCP Server
 
@@ -142,7 +147,7 @@ PULSAR exposes an MCP server in two transport modes.
 
 ### stdio transport — local / Claude Desktop
 
-Runs the MCP server as a subprocess. No auth is applied. Suitable for local development and single-user Claude Desktop setups where PULSAR runs on the same machine.
+Runs the MCP server as a subprocess. No auth is applied: whoever runs it with the database credentials reads everything that is not privacy-gated. Use it only for local development on a machine you alone use.
 
 Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
@@ -153,7 +158,7 @@ Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_conf
       "command": "python",
       "args": ["/path/to/pulsar/backend/mcp_server.py"],
       "env": {
-        "MONGO_URI": "mongodb://root:example@localhost:27017"
+        "MONGO_URI": "mongodb://pulsar:<MONGO_APP_PASSWORD>@localhost:27017/?authSource=admin"
       }
     }
   }
@@ -170,11 +175,11 @@ The MCP SSE endpoint is mounted at `/mcp/sse`. Auth is enforced by the `_McpAuth
 |--------|-------------|
 | `MCP_API_KEY` | Claude Desktop (remote), AURORA service-to-service, any non-human caller |
 | Entra ID JWT (`AUTH_ENABLED=true`) | Human users or systems that already have an Entra token |
-| Neither set | Development / internal-only deployments with network-level protection |
+| Neither set | Not possible unless `ALLOW_UNAUTHENTICATED=true` (local development only); then `/mcp` is open |
 
 **Reverse proxy / DNS rebinding protection**
 
-When PULSAR runs behind a reverse proxy, FastMCP's SSE transport rejects requests whose `Host` header does not match the allowed list. Set `MCP_ALLOWED_HOSTS` to your public hostname(s) so the MCP endpoint remains reachable:
+When PULSAR runs behind a reverse proxy, the MCP SDK's SSE transport rejects requests whose `Host` header does not match the allowed list. Set `MCP_ALLOWED_HOSTS` to your public hostname(s) so the MCP endpoint remains reachable:
 
 ```bash
 MCP_ALLOWED_HOSTS=pulsar.yourtenant.example
@@ -229,9 +234,9 @@ Both `MCP_API_KEY` and `AUTH_ENABLED` can be active simultaneously — service c
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
+pip install --require-hashes -r requirements-dev.txt   # includes the production lock
 
 # Lint and format
 ruff check .
@@ -253,5 +258,5 @@ docker compose run --rm backend python maintenance.py dedupe
 
 - Ensure `TENANT_ID` and `CLIENT_ID` name the ingestion app, that it has the required permissions and admin consent, and that its registered certificate matches `secrets/pulsar-ingestion.pem`. Token errors show in the source-health dots and in `docker compose logs backend`.
 - Management Activity API typically exposes ~7 days of history. Directory/Intune audit retention follows your tenant policy (commonly 30–90 days).
-- The service uses the `micro_soc` database and `events` collection by default — adjust in `backend/config.py` if needed.
+- The service uses the `micro_soc` database (`DB_NAME`) and keeps its own audit trail in `micro_soc_audit` (`AUDIT_DB_NAME`).
 - If using Azure Key Vault, ensure the runtime identity has `Get` permission on secrets.

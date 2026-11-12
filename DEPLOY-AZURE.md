@@ -1,6 +1,14 @@
 # PULSAR Azure Deployment Guide
 
 Deploy PULSAR on Azure Container Apps alongside an existing ASTRAL deployment.  
+
+> **Status and security differences.** This guide and `deploy/bootstrap-azure.ps1` have been reviewed but not
+> tested end to end against 3.x. Compared with the Docker Compose deployment: the app connects to MongoDB as
+> `root` (or the Cosmos DB admin), so the restricted `pulsar` user and the insert-only audit trail do not apply; the
+> containerised MongoDB is reachable by every app in the Container Apps environment; and the container hardening
+> (read-only filesystem, dropped capabilities) is not configured. See
+> [KI-13](docs/security/known-issues.md#ki-13-azure-path-without-the-least-privilege-database-user---medium-open)
+> before using this path for a client.
 This guide covers the full stack: the PULSAR backend container, managed Redis, and two database paths — **MongoDB-in-ACA** (default) and **Cosmos DB for MongoDB** (recommended for production Azure deployments).
 
 ---

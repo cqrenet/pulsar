@@ -1,7 +1,12 @@
 # PULSAR threat model
 
-Scope: the PULSAR code and a standard deployment (`docker-compose.prod.yml` behind a TLS-terminating reverse proxy).
-A deployment serves one tenant; there is no multi-tenant mode, so each client gets its own instance and data store.
+Scope: the PULSAR code and the reference deployment (`docker-compose.prod.yml` behind a TLS-terminating reverse
+proxy). A deployment serves one tenant; there is no multi-tenant mode, so each client gets its own instance and data
+store. The Azure Container Apps path ([DEPLOY-AZURE.md](../../DEPLOY-AZURE.md)) has weaker database isolation; see
+[KI-13](known-issues.md#ki-13-azure-path-without-the-least-privilege-database-user---medium-open).
+
+Weaknesses and limits we know about are listed with severities in [known-issues.md](known-issues.md); this document
+refers to them by ID.
 
 ## 1. System and data flow
 
@@ -56,47 +61,38 @@ Two Entra app registrations keep the powerful credential away from the user-faci
 |---|---|---|---|
 | **Spoofing** a user | API, UI, MCP | Entra access tokens only (RS256, JWKS, exact issuer, `tid`, audience, required `scp`, required `exp`/`iss`/`aud`); ID tokens rejected; assignment-required app | `test_security.py`: tenant/issuer, ID-token, required-claims tests |
 | Spoofing Graph | `/api/webhooks/graph` | Constant-time `clientState` comparison; rejected when no secret is configured | `test_api.py` webhook tests |
-| Spoofing a client IP | rate limit, `/metrics` | `X-Forwarded-For` read right to left, only through `TRUSTED_PROXIES` | `test_security.py` XFF tests |
-| **Tampering** with events | API | Tag/comment writes are scoped by the privacy filter; events are upserted by dedupe key; admin-only rule changes | route-authorisation test |
-| Tampering with the audit trail | MongoDB | App user can only insert into the audit database; a copy goes to stdout first | `deploy/mongo-init`, `audit_trail.py` |
-| Tampering in transit | all links | TLS at the proxy; outbound calls HTTPS (SIEM HTTPS-only) | `utils/ssrf.py` |
+| Spoofing a client IP | rate limit, `/metrics` | `X-Forwarded-For` read right to left, only through `TRUSTED_PROXIES`. The default trusts all private ranges (KI-04) | `test_security.py` XFF tests |
+| **Tampering** with events | API | No API edits raw events; tag/comment writes are scoped by the privacy filter; rule changes are admin-only. Readers can annotate (KI-08); the app's DB user can modify events (KI-09) | route-authorisation test |
+| Tampering with the audit trail | MongoDB | App user can only insert into the audit database; a copy goes to stdout first. Writes fail open (KI-10) | `deploy/mongo-init`, `audit_trail.py` |
+| Tampering in transit | all links | TLS at the proxy; Microsoft calls over HTTPS with redirects disabled; SIEM HTTPS-only. No TLS to MongoDB/Valkey (KI-12) | [outbound-http-review.md](outbound-http-review.md) |
 | **Repudiation** | mutations | One audit record per mutating request: user, action, detail, method, status, request ID (failed and denied attempts included) | `test_security.py` audit tests |
 | **Information disclosure** | reads | Privacy-gated services/operations hidden at query level on every read path (REST, MCP, alerts, filter options, summaries); documents without a service are hidden too | `test_security.py` privacy tests |
 | Disclosure via errors | API | Generic 500 handler; OpenAPI docs off; webhook and Office 365 errors do not echo upstream bodies | `main.py` |
 | Disclosure via alert cards | Slack/Teams | Tenant-controlled names are defanged (`hxxps[:]//`, broken markdown links) | `test_security.py` |
 | Secret exposure | containers | Mongo root credentials only in the mongo container; Valkey password in a mounted file; certificate as a Docker secret | `docker-compose.prod.yml` |
-| **Denial of service** | API | Redis rate limits per IP (fails closed), bounded page sizes, 10 000-document bulk-tag cap, 5 s DB time limit on counts and aggregations, webhook body limit, 10 MiB upstream response limit | `rate_limiter.py`, `queries.py`, `routes/webhooks.py`, `utils/http.py` |
-| **Elevation of privilege** | roles | Admin-only: rule changes and manual fetch; privacy data needs `PRIVACY_SERVICE_ROLES`; MCP API key carries no roles | route-authorisation test pins the admin set |
-| SSRF | webhooks, SIEM, Office 365 content | IP-literal and name blocklist, HTTPS-only SIEM with domain allowlist, content URIs limited to Microsoft hosts, redirects disabled | `utils/ssrf.py`, `test_refactor.py` |
+| **Denial of service** | API | Valkey rate limits per IP (429 when exceeded, and when Valkey is down: KI-06), bounded page sizes, 10 000-document bulk-tag cap, 5 s DB time limit on counts and aggregations (not on the list query: KI-16), 256 KiB webhook body limit, 10 MiB upstream response limit. No general body limit in the app (KI-17) | `rate_limiter.py`, `queries.py`, `routes/webhooks.py`, `utils/http.py` |
+| **Elevation of privilege** | roles | Admin-only: rule changes and manual fetch; privacy data needs `PRIVACY_SERVICE_ROLES`; MCP API key carries no roles | route test calls every `/api` route anonymously and as a reader and pins the admin set |
+| SSRF and token leakage | webhooks, SIEM, Microsoft calls | IP-literal and name blocklist (no DNS resolution: KI-07), HTTPS-only SIEM with domain allowlist, content URIs and Graph next links pinned to Microsoft hosts, JWKS URI pinned, redirects disabled everywhere | [outbound-http-review.md](outbound-http-review.md) |
 | Injection | search, filters | All free text matched literally (`re.escape`), typed request models, no string-built queries | `queries.py`, MCP input tests |
-| XSS / script gadgets | UI | CSP without `unsafe-eval`; exact CDN library paths; templates restricted to Alpine's CSP build; CSV export neutralises formulas | `test_frontend_csp.py` |
+| XSS / script gadgets | UI | CSP without `unsafe-eval`, with `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`; exact, SRI-pinned CDN library paths; templates restricted to Alpine's CSP build; no `x-html`/`innerHTML`; CSV export neutralises formulas. Token in `sessionStorage` (KI-01), inline styles allowed (KI-02) | `test_frontend_csp.py` |
 
-## 4. Accepted risks and limits
+## 4. Residual risk
 
-These are known and intentional; an assessor should not be surprised by them.
+The full list, with our severity ratings, is [known-issues.md](known-issues.md). The ones a reviewer should weigh first:
 
-1. **Tokens in `sessionStorage`.** MSAL keeps the access token in the browser. A successful XSS could read it; the
-   CSP and the CSP-only template rules are the mitigation. A server-side session (BFF) would remove this.
-2. **`style-src 'unsafe-inline'`.** Needed by inline styles in the UI; scripts are not affected.
-3. **Shared MCP API key.** Anyone holding it reads everything not privacy-gated, as the single identity
-   `mcp-api-key`. Use Entra sign-in for per-user attribution. Rotate the key regularly.
-4. **SSRF by DNS.** Hostnames are not resolved before use, so a public name that points at a private address is not
-   caught in code. Redirects are disabled; deployments should also restrict egress at the host or network.
-5. **Evidence can be annotated.** Any signed-in reader can add tags and comments to events and change alert status.
-   Annotations have no history (the audit trail records who did it). Restrict `AUTH_ALLOWED_ROLES` accordingly.
-6. **Audit-trail writes fail open.** If MongoDB is unreachable the action still proceeds and a warning is logged; the
-   stdout copy remains. Ship container logs to a log system you control.
-7. **No TLS inside the Docker network.** MongoDB and Valkey are reachable only on an internal network but speak
-   plaintext; the host's isolation is the control.
-8. **Search cost.** Free-text search is an unanchored case-insensitive regex; counts and aggregations are time-limited,
-   the event list query is not. Rate limiting bounds how often it can be run.
-9. **One worker.** MCP SSE sessions live in process memory, so the service is not horizontally scaled.
-10. **Unauthenticated endpoints** by design: `/health`, `/metrics` (IP allowlist), `/api/version`,
-    `/api/config/*` (public client identifiers), `/api/webhooks/graph` (`clientState`).
+- **Browser token theft** if script injection is ever found (KI-01). The CSP and template rules are the only barrier.
+- **Shared MCP API key** with no per-user identity or expiry (KI-03).
+- **Permissive proxy trust by default**: set `TRUSTED_PROXIES` to the proxy's address (KI-04).
+- **A compromised backend can alter events**; only the audit trail is append-only (KI-09).
+- **The Azure path** runs without the restricted database user (KI-13).
 
 ## 5. What the test suite proves
 
-`backend/tests/test_security.py` covers token validation, role and privacy enforcement on every read path, audit
-attribution, X-Forwarded-For handling, MCP input bounds, alert-card defanging, certificate client assertion, startup
-refusal rules and a route-by-route check that every `/api` route requires authentication (with the public list
-pinned). `test_frontend_csp.py` pins the CSP and template rules.
+`backend/tests/test_security.py` covers token validation (signature, issuer, tenant, audience, scope, required
+claims, ID-token rejection), role and privacy enforcement on every read path, audit records (one per mutation, denied
+attempts, request IDs), X-Forwarded-For handling, request-ID sanitising, MCP input bounds and API-key identity,
+alert-card defanging, certificate client assertion, the JWKS host check, startup refusal rules, and a behavioural check
+that calls every documented `/api` route anonymously and as a reader. `test_refactor.py` covers the outbound HTTP
+controls. `test_frontend_csp.py` pins the CSP and template rules.
+
+The tests run against mongomock and an in-memory Redis stand-in, not real MongoDB or Valkey (KI-24).

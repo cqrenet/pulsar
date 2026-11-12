@@ -29,7 +29,7 @@ Raw events are normalised into a common schema, stored in MongoDB, and made sear
 |-------|------------|
 | Language | Python 3.14 |
 | Web Framework | FastAPI |
-| Server | Gunicorn + Uvicorn workers (production) |
+| Server | Gunicorn with a single Uvicorn worker (MCP SSE sessions live in process memory) |
 | Database | MongoDB 7 (default database `micro_soc`, collection `events`) |
 | Cache / Rate Limiting | Valkey/Redis 8 |
 | Frontend | Vanilla HTML/CSS/JS with Alpine.js 3.x (CSP build: no `unsafe-eval`, one expression per attribute) |
@@ -37,7 +37,7 @@ Raw events are normalised into a common schema, stored in MongoDB, and made sear
 | Logging | `structlog` (structured JSON logging) |
 | Metrics | `prometheus-client` |
 | MCP | `mcp` library (stdio + HTTP/SSE transports) |
-| HTTP Client | `httpx`, `requests` |
+| HTTP Client | `requests` (outbound calls go through `utils/http.py`; `httpx` only in tests and the MCP SDK) |
 | Testing | `pytest`, `mongomock`, `httpx` |
 | Lint / Format | `ruff` (replaces flake8, black, isort) |
 | Containerisation | Docker, Docker Compose |
@@ -69,6 +69,7 @@ pulsar/
 │   ├── secrets_manager.py    # Azure Key Vault integration
 │   ├── watermark.py          # Incremental fetch watermark tracking
 │   ├── maintenance.py        # CLI maintenance utilities (renormalize, dedupe)
+│   ├── seed_demo.py          # Synthetic events for a local sandbox (security review, demos)
 │   ├── mapping_loader.py     # YAML mapping loader
 │   ├── mappings.yml          # Service/operation display mappings
 │   ├── mcp_common.py         # MCP shared tool handlers
@@ -128,6 +129,9 @@ pulsar/
 ├── pyproject.toml            # ruff + pytest configuration
 ├── VERSION                   # SemVer string
 ├── README.md                 # Quick start, API reference, MCP setup
+├── SECURITY.md               # Vulnerability reporting
+├── docs/security/            # Reviewer guide, threat model, known issues, operations, outbound HTTP
+├── scripts/                  # pulsar-live-baseline.py: read-only HTTP baseline of a deployment
 ├── DEPLOY.md                 # Production deployment guide
 ├── CHANGELOG.md              # Release history
 └── RELEASE_NOTES.md          # Latest release highlights and quick reference
@@ -242,9 +246,10 @@ The `client` fixture is heavily patched for test isolation:
 |------|----------|
 | `test_api.py` | End-to-end API tests: config, health, metrics, events CRUD, pagination, filters (including `correlation_id`), bulk tags, comments, saved searches, rules, alerts, webhooks, privacy filtering |
 | `test_auth.py` | Unit tests for `_allowed()` and `require_auth()` with auth enabled/disabled, JWKS cache reset fixture |
-| `test_event_model.py` | `normalize_event()` and `_make_dedupe_key()` logic |
+| `test_event_model.py` | `normalize_event()` and `make_dedupe_key()` logic |
 | `test_rules.py` | Rule condition matching (`eq`, `neq`, `contains`, `in`, `after_hours`) and `evaluate_event()` alert creation |
-| `test_security.py` | Regression tests for the security fixes: privacy filtering on every read path (REST, MCP, alerts), admin role, audit attribution, X-Forwarded-For handling, ID-token rejection, MCP input bounds, alert-card defanging, certificate client assertion, startup config checks |
+| `test_security.py` | Security regressions: token validation (issuer, tenant, scope, required claims, ID tokens), JWKS host check, privacy filtering on every read path (REST, MCP, alerts), admin role, audit records, X-Forwarded-For and request-ID handling, MCP input bounds and identity, alert-card defanging, certificate client assertion, startup refusal rules, and a behavioural check of every `/api` route as anonymous and as a reader |
+| `test_refactor.py` | Shared helpers: SSRF checks, outbound redirects and response limits, content-URI and Graph next-link host checks, settings parsing, rate-limit categories, ingest pipeline |
 | `test_frontend_csp.py` | Templates only use syntax Alpine's CSP build supports; the served CSP has no `unsafe-eval` |
 
 ### Adding new tests
@@ -258,11 +263,15 @@ The `client` fixture is heavily patched for test isolation:
 
 ## Security Considerations
 
+The authoritative security documentation is [docs/security/](docs/security/README.md): threat model, known issues
+(with severities), operations and the outbound HTTP inventory. Keep [known-issues.md](docs/security/known-issues.md)
+current when a change adds, fixes or worsens a weakness.
+
 PULSAR handles sensitive audit data and admin credentials. The following defences are implemented:
 
 ### Authentication and authorisation
 
-- Optional OIDC Bearer token auth via Microsoft Entra ID (`AUTH_ENABLED`).
+- Entra ID access-token auth (`AUTH_ENABLED`). Startup refuses to run with it off unless `ALLOW_UNAUTHENTICATED=true` (development only).
 - Tokens are verified against cached JWKS (RS256), with tenant/issuer/audience validation.
 - Role-based and group-based access control via `AUTH_ALLOWED_ROLES` and `AUTH_ALLOWED_GROUPS`.
 - Privacy-sensitive services/operations can be hidden from users without `PRIVACY_SERVICE_ROLES`.
@@ -346,7 +355,7 @@ PULSAR expects TLS termination and forwarding from a reverse proxy. Supported op
 4. **Cursor-based pagination** — The events API uses base64-encoded `(timestamp|oid)` cursors, not offset paging.
 5. **Event-driven alerting** — Alert rules are evaluated synchronously during ingestion (`run_fetch` → `evaluate_event`).
 6. **MCP dual transport** — Shared tool handlers (`mcp_common.py`) are exposed via both stdio (`mcp_server.py`) and SSE (`routes/mcp.py`) transports.
-7. **Rate limiter fails closed** — If Redis is unavailable, rate-limited endpoints return `503` rather than allowing unbounded traffic.
+7. **Rate limiter fails closed** — If Valkey/Redis is unavailable, rate-limited endpoints return `429` rather than allowing unbounded traffic.
 8. **Module-level singletons** — MongoDB client, Redis clients, JWKS cache, and token cache are all module-level singletons.
 
 ---

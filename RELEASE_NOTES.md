@@ -7,6 +7,10 @@
 
 ## Latest Release Highlights
 
+**3.x** makes the configuration secure by default (sign-in required, same-origin CORS, MongoDB root credentials kept
+out of the backend container, hardened container) and moves to Python 3.14, `mcp` 2.x, redis-py 8 and Valkey 9. See
+[CHANGELOG.md](CHANGELOG.md) for details and [DEPLOY.md](DEPLOY.md#upgrading-from-2x) to upgrade from 2.x.
+
 PULSAR ingests Microsoft 365 admin audit events into MongoDB and exposes a web UI, REST API, and MCP server for search, filtering, alerting, and SIEM forwarding.
 
 ### Core Capabilities
@@ -21,11 +25,11 @@ PULSAR ingests Microsoft 365 admin audit events into MongoDB and exposes a web U
 - **Alert rules engine** — define conditions that trigger webhook notifications during ingestion
 - **SIEM forwarding** — forward every ingested event to a webhook endpoint (Splunk, Sentinel, generic)
 - **Prometheus metrics**, structured JSON logging, Redis-backed rate limiting
-- **Docker Compose deployment** (dev and production configurations with nginx)
+- **Docker Compose deployment** (development and production configurations; an optional HTTPS-only nginx example)
 
 ### MCP Server (Claude Desktop / Cursor)
 
-- **stdio transport** — local subprocess, no auth (development / single-user)
+- **stdio transport** — local subprocess, no auth (development on a single-user machine only)
 - **SSE transport** — remote/production endpoint at `/mcp/sse`
   - **API key auth** (`MCP_API_KEY`) — lightweight bearer-token gate
   - **Entra OIDC auth** (`AUTH_ENABLED`) — JWT validation with role/group ACLs
@@ -35,11 +39,15 @@ PULSAR ingests Microsoft 365 admin audit events into MongoDB and exposes a web U
 
 ### Authentication & Security
 
-- Optional OIDC Bearer token auth (Microsoft Entra) with role and group-based access control
-- Optional Azure Key Vault integration for secrets storage
-- Privacy-sensitive services/operations hidden from users without `PRIVACY_SERVICE_ROLES`
-- SSRF protection on outbound webhooks and SIEM forwarding
-- Rate limiter fails closed when Redis is unavailable
+- Entra ID access tokens with app roles (reader, admin, privacy reader); PULSAR refuses to start without auth unless
+  `ALLOW_UNAUTHENTICATED=true` is set for development
+- Ingestion with a certificate credential; no client secret
+- Privacy-sensitive services/operations hidden from users without `PRIVACY_SERVICE_ROLES`, on every read path
+- One audit record per change, written to an insert-only database and to stdout
+- Outbound HTTP: no redirects, bounded responses, Microsoft hosts pinned, SSRF checks on webhooks and SIEM
+- Rate limiter fails closed when Valkey is unavailable
+- Security review material: [docs/security/](docs/security/README.md), including the
+  [known issues](docs/security/known-issues.md)
 
 ---
 
@@ -47,7 +55,8 @@ PULSAR ingests Microsoft 365 admin audit events into MongoDB and exposes a web U
 
 ```bash
 cp .env.example .env
-# Paste the lines printed by .\deploy\bootstrap-tenant.ps1
+cp .env.db.example .env.db
+# Paste the lines printed by .\deploy\bootstrap-tenant.ps1 into .env and set the passwords in both files
 docker compose up --build
 ```
 
@@ -56,11 +65,7 @@ docker compose up --build
 
 ## Container Image
 
-```bash
-docker pull ghcr.io/cqrenet/pulsar:latest
-```
-
-Pin to a specific release:
+Pin a specific release in production rather than `latest`:
 
 ```bash
 export PULSAR_VERSION=v3.1.0  # or see VERSION
