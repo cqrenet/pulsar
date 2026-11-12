@@ -19,6 +19,7 @@ import structlog
 from auth import verify_bearer
 from config import settings
 from fastapi import HTTPException
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp_tools import mcp
 
 logger = structlog.get_logger("pulsar.mcp")
@@ -110,8 +111,17 @@ class _McpAuthMiddleware:
 
 
 def build_mcp_app():
-    """Return the FastMCP SSE ASGI app, wrapped with the auth middleware."""
-    app = mcp.sse_app()
+    """Return the MCP SSE ASGI app, wrapped with the auth middleware.
+
+    DNS rebinding protection stays on, with the configured public hostname allowed. Without MCP_ALLOWED_HOSTS the
+    transport accepts only loopback Host headers and rejects requests arriving through a reverse proxy.
+    MCP_ALLOWED_HOSTS: comma-separated host[:port] values accepted in addition to the loopback entries.
+    """
+    security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*", *settings.MCP_ALLOWED_HOSTS],
+    )
+    app = mcp.sse_app(transport_security=security)
     return _McpAuthMiddleware(app)
 
 

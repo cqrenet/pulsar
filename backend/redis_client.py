@@ -18,5 +18,5 @@ async def close_redis_connections():
     """Close all Redis connections (call on shutdown)."""
     global _plain_redis
     if _plain_redis:
-        await _plain_redis.close()
+        await _plain_redis.aclose()
         _plain_redis = None

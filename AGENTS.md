@@ -27,7 +27,7 @@ Raw events are normalised into a common schema, stored in MongoDB, and made sear
 
 | Layer | Technology |
 |-------|------------|
-| Language | Python 3.11+ |
+| Language | Python 3.14 |
 | Web Framework | FastAPI |
 | Server | Gunicorn + Uvicorn workers (production) |
 | Database | MongoDB 7 (default database `micro_soc`, collection `events`) |
@@ -78,7 +78,7 @@ pulsar/
 │   ├── requirements.txt      # Hashed lock generated from requirements.in (pip-compile)
 │   ├── requirements-dev.in   # Dev dependencies (pytest, mongomock, ruff, pip-audit)
 │   ├── requirements-dev.txt  # Hashed lock: prod + dev
-│   ├── Dockerfile            # Python 3.11-slim (digest-pinned), uid 10001, gunicorn
+│   ├── Dockerfile            # Python 3.14-slim (digest-pinned), uid 10001, gunicorn
 │   ├── frontend/             # Static UI files
 │   │   ├── index.html
 │   │   ├── app.js            # assembles the Alpine component from js/*
@@ -190,7 +190,7 @@ Tests do **not** require a running MongoDB or Redis instance. Everything is mock
 
 Configuration lives in `pyproject.toml`:
 
-- **Target Python version:** 3.11
+- **Target Python version:** 3.14
 - **Line length:** 120 characters
 - **Lint rules enabled:** E, F, I, N, W, UP, B, C4, SIM
   - `E` — pycodestyle errors
