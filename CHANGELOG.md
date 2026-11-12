@@ -4,6 +4,19 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-11-12
+
+No configuration changes are required. Operators who build their own images or run the app outside Docker need Python 3.14.
+
+### Changed (dependency update)
+
+- **Python 3.14** (was 3.11) in the image, CI and the hash-locked requirements. Run `pip-compile` with the same Python minor version; the lock header says how.
+- **`mcp` 2.x** (was 1.30): `FastMCP` became `MCPServer`, and DNS-rebinding settings moved from the constructor to `sse_app()`. Verified with a real MCP client session over SSE (list tools, call tools, API key accepted, wrong key rejected).
+- **`redis` 8.1** (was 5.3; `hiredis` is no longer needed) and **Valkey 9** (was 8) in the compose files. Rate-limit counters only, so no data migration is needed. `aclose()` replaces the deprecated `close()`.
+- **GitHub Actions:** `actions/checkout` 7.0.1, `actions/setup-python` 7.1.0.
+- **Image:** pip and setuptools are removed after the dependencies are installed. pip bundles its own urllib3 and msgpack, which scanners flag, and nothing needs pip at runtime.
+- Known, unchanged by this update: the mounted MCP SSE endpoint logs an `AssertionError: Unexpected message` when a client disconnects (also with `mcp` 1.30). It is harmless to clients.
+
 ## [3.0.0] — 2026-11-12
 
 **Major release: secure-by-default configuration.** If you run 2.x, follow [Upgrading from 2.x](DEPLOY.md#upgrading-from-2x) before updating. In short: set `AUTH_ENABLED=true` (or `ALLOW_UNAUTHENTICATED=true` for development), set `CORS_ORIGINS` explicitly, and move the MongoDB root credentials from `.env` to `.env.db` if you use the provided compose files.

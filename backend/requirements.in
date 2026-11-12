@@ -1,5 +1,6 @@
 # Top-level dependencies. requirements.txt is the hashed lock generated from this file; regenerate with:
-#   docker run --rm -v "$PWD:/w" -w /w python:3.11-slim sh -c "pip install pip-tools && pip-compile --generate-hashes --allow-unsafe --strip-extras requirements.in && pip-compile --generate-hashes --allow-unsafe --strip-extras requirements-dev.in"
+#   docker run --rm -v "$PWD:/w" -w /w python:3.14-slim sh -c "pip install pip-tools && pip-compile --upgrade --generate-hashes --allow-unsafe --strip-extras requirements.in && pip-compile --upgrade --generate-hashes --allow-unsafe --strip-extras requirements-dev.in"
+# Run it with the same Python minor version as backend/Dockerfile and the CI workflow: the lock is resolved for it.
 # Dependabot keeps both files up to date.
 fastapi
 uvicorn[standard]
@@ -15,7 +16,7 @@ tenacity
 prometheus-client
 httpx
 gunicorn
-mcp<2  # 2.x renamed FastMCP and changed the SSE APIs: upgrade as its own change, not via a lock refresh
+mcp
 redis
 
 # Optional: Azure Key Vault integration for secrets storage

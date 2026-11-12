@@ -1,5 +1,5 @@
 # Pinned by digest; Dependabot proposes updates.
-FROM python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
+FROM python:3.14-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 
 # Bake the version into the image at build time
 ARG VERSION=unknown
@@ -16,8 +16,9 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 # Install dependencies first for layer caching
 COPY requirements.txt .
 # Hash-locked: every package must match requirements.txt exactly, or the build fails.
-# setuptools ships with the base image but nothing needs it at runtime; it only adds vulnerable vendored code.
-RUN pip install --no-cache-dir --require-hashes -r requirements.txt && pip uninstall -y setuptools
+# pip and setuptools ship with the base image but nothing needs them at runtime; they only add vendored libraries
+# (pip bundles its own urllib3 and msgpack) that scanners flag. Remove them once the dependencies are installed.
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt && pip uninstall -y setuptools pip
 
 # Copy application code
 COPY . .
