@@ -6,6 +6,7 @@ All notable changes to PULSAR will be documented here.
 
 ### Changed
 
+- **Phone layout.** At 640 px and below the header keeps only the essentials (brand, health dots, theme, Fetch, Refresh, Login), and the event table fits the screen with the operation text wrapping. The page no longer scrolls sideways on phones.
 - **Sign-in splash.** When sign-in is required and the browser has no token, the UI shows a "Sign in with Microsoft" screen instead of an empty event list. It appears after sign-out and when a session expires.
 
 ## [3.1.2] — 2026-11-12
