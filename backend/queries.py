@@ -7,6 +7,24 @@ from database import events_collection
 from fastapi import HTTPException, Query
 from utils.common import contains
 
+QUERY_MAX_TIME_MS = 5_000
+
+
+def _count_documents(query: dict) -> int:
+    try:
+        return events_collection.count_documents(query, maxTimeMS=QUERY_MAX_TIME_MS)
+    except TypeError:
+        # mongomock and older test doubles may not expose PyMongo's timeout keyword.
+        return events_collection.count_documents(query)
+
+
+def _aggregate(pipeline: list[dict]):
+    try:
+        return events_collection.aggregate(pipeline, maxTimeMS=QUERY_MAX_TIME_MS)
+    except TypeError:
+        # mongomock and older test doubles may not expose PyMongo's timeout keyword.
+        return events_collection.aggregate(pipeline)
+
 
 def encode_cursor(timestamp: str, oid: str) -> str:
     return base64.b64encode(f"{timestamp}|{oid}".encode()).decode()
@@ -116,7 +134,7 @@ class EventFilters:
 
 def summarize_events(query: dict) -> dict:
     """Counts by service, operation, result and top actors for the events matching `query`."""
-    total = events_collection.count_documents(query)
+    total = _count_documents(query)
     if total == 0:
         return {"total": 0, "by_service": [], "by_operation": [], "by_result": [], "top_actors": []}
 
@@ -127,7 +145,7 @@ def summarize_events(query: dict) -> dict:
             {"$sort": {"count": -1}},
             {"$limit": limit},
         ]
-        return [{"name": r["_id"] or "Unknown", "count": r["count"]} for r in events_collection.aggregate(pipeline)]
+        return [{"name": r["_id"] or "Unknown", "count": r["count"]} for r in _aggregate(pipeline)]
 
     return {
         "total": total,

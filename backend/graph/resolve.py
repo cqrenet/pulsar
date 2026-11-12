@@ -1,5 +1,5 @@
 import structlog
-from utils.http import get_with_retry
+from utils.http import get_with_retry, read_json_response
 
 logger = structlog.get_logger("pulsar.resolve")
 
@@ -25,11 +25,12 @@ def _name_from_payload(payload: dict, kind: str) -> str:
 
 def _request_json(url: str, token: str) -> dict | None:
     try:
-        res = get_with_retry(url, headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        res = get_with_retry(url, headers={"Authorization": f"Bearer {token}"}, timeout=10, stream=True)
         if res.status_code == 404:
+            res.close()
             return None
-        res.raise_for_status()
-        return res.json()
+        payload = read_json_response(res, what="resolve Graph directory object")
+        return payload if isinstance(payload, dict) else None
     except Exception as exc:
         logger.debug("Graph lookup failed", url=url.split("?")[0], error=str(exc))
         return None

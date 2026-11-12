@@ -62,7 +62,13 @@ def _event_fields(event: dict, clean) -> EventFields:
 )
 def _post_webhook(url: str, payload: dict) -> requests.Response:
     """POST to webhook with retry on connection/timeout errors."""
-    return requests.post(url, json=payload, timeout=WEBHOOK_TIMEOUT, headers={"Content-Type": "application/json"})
+    return requests.post(
+        url,
+        json=payload,
+        timeout=WEBHOOK_TIMEOUT,
+        headers={"Content-Type": "application/json"},
+        allow_redirects=False,
+    )
 
 
 def _build_slack_payload(rule_name: str, severity: str, message: str, event: dict) -> dict:
@@ -191,6 +197,8 @@ def send_notification(
     try:
         res = _post_webhook(webhook_url, payload)
         res.raise_for_status()
+        if not 200 <= res.status_code < 300:
+            raise requests.HTTPError(f"Unexpected webhook response status {res.status_code}")
         logger.info(
             "Notification sent",
             rule=rule_name,

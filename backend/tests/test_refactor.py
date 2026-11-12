@@ -131,11 +131,19 @@ def test_siem_forwards_all_events_and_blocks_bad_urls(monkeypatch):
     posted = []
 
     class Resp:
+        status_code = 202
+
         def raise_for_status(self):
             pass
 
     monkeypatch.setattr("config.settings.SIEM_ENABLED", True)
-    monkeypatch.setattr(siem.requests.Session, "post", lambda self, url, json, timeout: posted.append(json) or Resp())
+    monkeypatch.setattr(
+        siem.requests.Session,
+        "post",
+        lambda self, url, json, timeout, allow_redirects: (
+            posted.append({"event": json, "allow_redirects": allow_redirects}) or Resp()
+        ),
+    )
 
     monkeypatch.setattr("config.settings.SIEM_WEBHOOK_URL", "http://siem.example.com/x")  # not https
     siem.forward_events([{"id": "0"}])
@@ -143,7 +151,152 @@ def test_siem_forwards_all_events_and_blocks_bad_urls(monkeypatch):
 
     monkeypatch.setattr("config.settings.SIEM_WEBHOOK_URL", "https://siem.example.com/x")
     siem.forward_events([{"id": str(i)} for i in range(10)])
-    assert sorted(e["id"] for e in posted) == sorted(str(i) for i in range(10))
+    assert sorted(entry["event"]["id"] for entry in posted) == [str(i) for i in range(10)]
+    assert all(entry["allow_redirects"] is False for entry in posted)
+
+
+def test_siem_redirect_is_not_reported_as_delivered(monkeypatch):
+    import siem
+
+    class Redirect:
+        status_code = 302
+
+        def raise_for_status(self):
+            pass  # requests does not raise for 3xx responses
+
+    logged = []
+    monkeypatch.setattr(siem.requests.Session, "post", lambda self, *args, **kwargs: Redirect())
+    monkeypatch.setattr(siem.logger, "warning", lambda message, **kwargs: logged.append(message))
+    monkeypatch.setattr(siem.logger, "debug", lambda message, **kwargs: logged.append(message))
+    siem._post(siem.requests.Session(), {"id": "example"})
+    assert "SIEM forward failed" in logged
+    assert "Event forwarded to SIEM" not in logged
+
+
+def test_notification_webhook_disables_redirects(monkeypatch):
+    import notifications
+
+    calls = []
+
+    class Resp:
+        pass
+
+    monkeypatch.setattr(
+        notifications.requests,
+        "post",
+        lambda url, json, timeout, headers, allow_redirects: (
+            calls.append({"url": url, "allow_redirects": allow_redirects}) or Resp()
+        ),
+    )
+
+    notifications._post_webhook("https://hooks.example.com/alert", {})
+    assert calls == [{"url": "https://hooks.example.com/alert", "allow_redirects": False}]
+
+
+def test_notification_redirect_is_not_reported_as_delivered(monkeypatch):
+    import notifications
+
+    class Redirect:
+        status_code = 302
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(notifications, "_post_webhook", lambda url, payload: Redirect())
+    assert (
+        notifications.send_notification("https://hooks.example.com/alert", "generic", "rule", "high", "msg", {})
+        is False
+    )
+
+
+def test_get_json_rejects_oversized_response(monkeypatch):
+    import utils.http as http
+
+    class Response:
+        headers = {"content-length": str(http.MAX_RESPONSE_BYTES + 1)}
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(http, "get_with_retry", lambda *args, **kwargs: Response())
+    with pytest.raises(RuntimeError, match="Response too large"):
+        http.get_json("https://graph.microsoft.com/test", what="test")
+
+
+def test_json_response_stream_is_bounded_and_closed(monkeypatch):
+    import utils.http as http
+
+    class Response:
+        status_code = 200
+        headers = {}
+        closed = False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size):
+            yield b"x" * 5
+            yield b"x" * 5
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+    monkeypatch.setattr(http.requests, "get", lambda *args, **kwargs: response)
+    with pytest.raises(RuntimeError, match="exceeded"):
+        http.get_json("https://graph.microsoft.com/test", what="test", max_bytes=6)
+    assert response.closed
+
+
+def test_listing_and_graph_resolver_use_streaming_json(monkeypatch):
+    import graph.resolve as resolve
+    import sources.unified_audit as audit
+
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size):
+            yield self.payload
+
+        def close(self):
+            pass
+
+    def get(url, **kwargs):
+        calls.append(kwargs)
+        return Response(b"{}" if "graph.microsoft.com" in url else b"[]")
+
+    monkeypatch.setattr(audit, "get_with_retry", get)
+    monkeypatch.setattr(resolve, "get_with_retry", get)
+    assert audit._list_content("Audit.Exchange", "token", "tenant", 1) == []
+    assert resolve._request_json("https://graph.microsoft.com/v1.0/users/id", "token") == {}
+    assert all(call["stream"] is True for call in calls)
+
+
+def test_unified_content_uri_is_restricted_to_microsoft_hosts(monkeypatch):
+    import sources.unified_audit as unified_audit
+
+    calls = []
+    monkeypatch.setattr(
+        unified_audit,
+        "get_json",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or [],
+    )
+
+    with pytest.raises(ValueError, match="content URI host"):
+        unified_audit._download_content("https://evil.example/audit", "token")
+    assert calls == []
+
+    assert unified_audit._download_content("https://manage.office.com/audit", "token") == []
+    assert calls
 
 
 def test_settings_parse_env_lists_and_derive_values(monkeypatch):

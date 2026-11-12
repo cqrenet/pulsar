@@ -12,8 +12,10 @@ MAX_PARALLEL_POSTS = 4
 
 def _post(session: requests.Session, event: dict) -> None:
     try:
-        res = session.post(settings.SIEM_WEBHOOK_URL, json=event, timeout=10)
+        res = session.post(settings.SIEM_WEBHOOK_URL, json=event, timeout=10, allow_redirects=False)
         res.raise_for_status()
+        if not 200 <= res.status_code < 300:
+            raise requests.HTTPError(f"Unexpected SIEM response status {res.status_code}")
         logger.debug("Event forwarded to SIEM", event_id=event.get("id"))
     except Exception as exc:
         logger.warning("SIEM forward failed", error=str(exc))

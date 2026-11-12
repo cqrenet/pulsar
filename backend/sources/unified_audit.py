@@ -1,10 +1,12 @@
 from contextlib import suppress
 from datetime import datetime, timedelta
 
+import structlog
 from config import settings
 from graph.auth import get_access_token
 from utils.common import utc_now
-from utils.http import get_json, get_with_retry, post_with_retry
+from utils.http import get_json, get_with_retry, post_with_retry, read_json_response
+from utils.ssrf import validate_outbound_url
 
 AUDIT_CONTENT_TYPES = {
     "Audit.Exchange": "Exchange admin audit",
@@ -16,6 +18,14 @@ AUDIT_CONTENT_TYPES = {
 # Office 365 Management Activity API hard limits
 _API_MAX_WINDOW_HOURS = 24
 _API_MAX_LOOKBACK_DAYS = 7
+logger = structlog.get_logger("pulsar.unified_audit")
+
+_CONTENT_HOSTS = {
+    "manage.office.com",
+    "manage-gcc.office.com",
+    "manage.office365.us",
+    "manage.protection.apps.mil",
+}
 
 
 def _time_window(hours: int, since: str | None = None):
@@ -49,12 +59,12 @@ def _list_content(content_type: str, token: str, tenant_id: str, hours: int, sin
     params = {"contentType": content_type, "startTime": start, "endTime": end}
     headers = {"Authorization": f"Bearer {token}"}
     try:
-        res = get_with_retry(url, params=params, headers=headers, timeout=20)
+        res = get_with_retry(url, params=params, headers=headers, timeout=20, stream=True)
         if res.status_code in (400, 401, 403, 404):
-            # Likely not enabled or insufficient perms; surface the text to the caller.
-            raise RuntimeError(f"{content_type} content listing failed ({res.status_code}): {res.text}")
+            logger.error("Office 365 content listing failed", content_type=content_type, status=res.status_code)
+            raise RuntimeError(f"{content_type} content listing failed (HTTP {res.status_code})")
         res.raise_for_status()
-        return res.json() or []
+        return read_json_response(res, what=f"list {content_type} content") or []
     except RuntimeError:
         raise
     except Exception as exc:
@@ -62,10 +72,19 @@ def _list_content(content_type: str, token: str, tenant_id: str, hours: int, sin
 
 
 def _download_content(content_uri: str, token: str) -> list[dict]:
-    return (
-        get_json(content_uri, what="download audit content", headers={"Authorization": f"Bearer {token}"}, timeout=30)
-        or []
+    try:
+        validate_outbound_url(content_uri, https_only=True, allowed_domains=sorted(_CONTENT_HOSTS))
+    except ValueError as exc:
+        raise ValueError(f"Invalid audit content URI host: {exc}") from exc
+    payload = get_json(
+        content_uri,
+        what="download audit content",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
     )
+    if not isinstance(payload, list):
+        raise RuntimeError("Audit content response was not a JSON list")
+    return payload
 
 
 def fetch_unified_audit(hours: int = 24, since: str | None = None, max_files: int = 50) -> list[dict]:

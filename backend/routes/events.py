@@ -9,7 +9,7 @@ from models.api import (
     PaginatedEventResponse,
     TagsUpdateRequest,
 )
-from queries import EventFilters, encode_cursor
+from queries import QUERY_MAX_TIME_MS, EventFilters, encode_cursor
 from utils.common import user_sub, utc_now
 
 router = APIRouter(dependencies=[Depends(require_auth)])
@@ -79,6 +79,14 @@ def bulk_tags(
     return {"matched": result_obj.matched_count, "modified": result_obj.modified_count}
 
 
+def _distinct(field: str, query: dict) -> list:
+    try:
+        return events_collection.distinct(field, query, maxTimeMS=QUERY_MAX_TIME_MS)
+    except TypeError:
+        # mongomock and older test doubles may not expose PyMongo's timeout keyword.
+        return events_collection.distinct(field, query)
+
+
 @router.get("/filter-options", response_model=FilterOptionsResponse)
 def filter_options(
     limit: int = Query(default=200, ge=1, le=1000),
@@ -87,14 +95,12 @@ def filter_options(
     # Filter at the source: actors, UPNs and devices from hidden events would otherwise leak too.
     visible = apply_privacy_filter({}, user)
     try:
-        services = sorted(events_collection.distinct("service", visible))[:limit]
-        operations = sorted(events_collection.distinct("operation", visible))[:limit]
-        results = sorted([r for r in events_collection.distinct("result", visible) if r])[:limit]
-        actors = sorted([a for a in events_collection.distinct("actor_display", visible) if a])[:limit]
-        actor_upns = sorted([a for a in events_collection.distinct("actor_upn", visible) if a])[:limit]
-        devices = sorted([a for a in events_collection.distinct("target_displays", visible) if isinstance(a, str)])[
-            :limit
-        ]
+        services = sorted(_distinct("service", visible))[:limit]
+        operations = sorted(_distinct("operation", visible))[:limit]
+        results = sorted([r for r in _distinct("result", visible) if r])[:limit]
+        actors = sorted([a for a in _distinct("actor_display", visible) if a])[:limit]
+        actor_upns = sorted([a for a in _distinct("actor_upn", visible) if a])[:limit]
+        devices = sorted([a for a in _distinct("target_displays", visible) if isinstance(a, str)])[:limit]
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Failed to load filter options") from exc
 
