@@ -30,7 +30,10 @@ CONTENT_SECURITY_POLICY = (
     "frame-src 'self' https://login.microsoftonline.com; "
     "form-action 'self' https://login.microsoftonline.com; "
     "img-src 'self' data:; "
-    "font-src 'self' data:;"
+    "font-src 'self' data:; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'none';"
 )
 PERMISSIONS_POLICY = (
     "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"

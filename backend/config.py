@@ -102,7 +102,7 @@ class Settings(BaseSettings):
     # MCP allowed hosts for DNS rebinding protection.
     # Comma-separated list of host[:port] values that the MCP SSE transport will accept
     # in the Host header.  Add your public hostname here when running behind a reverse
-    # proxy (e.g. "pulsar.cqre.net").  Loopback entries are always allowed.
+    # proxy (e.g. "pulsar.example.com").  Loopback entries are always allowed.
     MCP_ALLOWED_HOSTS: CsvList = Field(default_factory=list)
 
     # MCP API key (lightweight alternative / complement to OIDC for MCP SSE access)

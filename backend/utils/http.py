@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlparse
 
 import requests
 import structlog
@@ -109,7 +110,11 @@ def get_json(
 
 
 def fetch_graph_pages(url: str, *, headers: dict, what: str, max_pages: int = 50) -> list[dict]:
-    """Follow @odata.nextLink and collect every `value` item. Aborts rather than looping forever."""
+    """Follow @odata.nextLink and collect every `value` item. Aborts rather than looping forever.
+
+    The bearer token goes with every page request, so a next link must stay on the HTTPS origin of the first URL.
+    """
+    origin = urlparse(url)
     items: list[dict] = []
     for _ in range(max_pages):
         body = get_json(url, what=f"fetch {what}", headers=headers)
@@ -117,4 +122,7 @@ def fetch_graph_pages(url: str, *, headers: dict, what: str, max_pages: int = 50
         url = body.get("@odata.nextLink")
         if not url:
             return items
+        nxt = urlparse(url)
+        if nxt.scheme != "https" or nxt.hostname != origin.hostname:
+            raise RuntimeError(f"Refusing {what} next link to another host: {nxt.hostname}")
     raise RuntimeError(f"Aborting {what} pagination after {max_pages} pages to avoid runaway fetch.")

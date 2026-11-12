@@ -1,5 +1,7 @@
 """Regression tests for the shared helpers introduced by the refactor."""
 
+from urllib.parse import urlparse
+
 import pytest
 from config import settings
 
@@ -272,7 +274,7 @@ def test_listing_and_graph_resolver_use_streaming_json(monkeypatch):
 
     def get(url, **kwargs):
         calls.append(kwargs)
-        return Response(b"{}" if "graph.microsoft.com" in url else b"[]")
+        return Response(b"{}" if urlparse(url).hostname == "graph.microsoft.com" else b"[]")
 
     monkeypatch.setattr(audit, "get_with_retry", get)
     monkeypatch.setattr(resolve, "get_with_retry", get)
@@ -318,3 +320,17 @@ def test_settings_parse_env_lists_and_derive_values(monkeypatch):
     assert s.MCP_API_KEY == "key"
     assert s.AUTH_TENANT_ID == "tenant-1"  # falls back to TENANT_ID
     assert s.AUTH_CLIENT_ID == ""  # never falls back to the ingestion app's CLIENT_ID
+
+
+def test_graph_pagination_never_sends_the_token_to_another_host(monkeypatch):
+    import utils.http as http
+
+    pages = {
+        "https://graph.microsoft.com/v1.0/a": {"value": [1], "@odata.nextLink": "https://graph.microsoft.com/v1.0/b"},
+        "https://graph.microsoft.com/v1.0/b": {"value": [2], "@odata.nextLink": "https://evil.example/c"},
+    }
+    requested = []
+    monkeypatch.setattr(http, "get_json", lambda url, **kw: requested.append(url) or pages[url])
+    with pytest.raises(RuntimeError, match="another host"):
+        http.fetch_graph_pages("https://graph.microsoft.com/v1.0/a", headers={"Authorization": "Bearer t"}, what="x")
+    assert requested == ["https://graph.microsoft.com/v1.0/a", "https://graph.microsoft.com/v1.0/b"]

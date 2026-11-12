@@ -79,7 +79,7 @@ def _get_access_token_locked(scope: str):
         "scope": scope,
     }
     try:
-        res = requests.post(url, data=data, timeout=15)
+        res = requests.post(url, data=data, timeout=15, allow_redirects=False)
         res.raise_for_status()
         payload = res.json()
         token = payload.get("access_token")
