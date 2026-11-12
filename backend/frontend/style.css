@@ -1226,3 +1226,63 @@ body {
   .col-time { width: 80px; }
   .app-footer { flex-direction: column; text-align: center; }
 }
+
+
+/* ── Sign-in splash (logged out) ─────────────────────────────── */
+[x-cloak] { display: none !important; }
+
+.signin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100vw;
+  max-width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  padding: 16px;
+  background: var(--bg);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.signin-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 440px;
+  text-align: center;
+}
+
+.signin-card__logo { color: var(--accent); margin-bottom: 12px; }
+
+.signin-card__title {
+  margin: 0 0 12px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.signin-card__text {
+  margin: 0 0 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.signin-card__text--muted { font-size: 0.875rem; color: var(--text-3); }
+
+.signin-card__button {
+  margin-top: 8px;
+  padding: 10px 20px;
+  font-size: 1rem;
+}
+
+.signin-card__button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.signin-card__status {
+  margin: 16px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-2);
+}

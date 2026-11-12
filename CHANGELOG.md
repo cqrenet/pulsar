@@ -4,6 +4,10 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Sign-in splash.** When sign-in is required and the browser has no token, the UI shows a "Sign in with Microsoft" screen instead of an empty event list. It appears after sign-out and when a session expires.
+
 ## [3.1.2] — 2026-11-12
 
 ### Fixed
