@@ -460,3 +460,33 @@ def test_signing_keys_are_only_fetched_from_microsoft(monkeypatch):
     with pytest.raises(RuntimeError, match="jwks_uri"):
         auth._fetch_jwks_blocking()
     assert calls and all(allow is False for _, allow in calls)  # redirects are never followed
+
+
+def test_v1_and_v2_issuers_of_the_configured_tenant_are_accepted(monkeypatch):
+    monkeypatch.setattr("config.settings.AUTH_CLIENT_ID", "api-guid")
+    monkeypatch.setattr("config.settings.AUTH_TENANT_ID", "tenant")
+    monkeypatch.setattr("config.settings.AUTH_SCOPE", "api://api-guid/user_impersonation")
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwks = [{**RSAAlgorithm.to_jwk(key.public_key(), as_dict=True), "kid": "k1"}]
+    base = {
+        "aud": "api-guid",
+        "tid": "tenant",
+        "azp": "spa",
+        "scp": "user_impersonation",
+        "exp": int(time.time()) + 600,
+    }
+
+    for iss in ("https://login.microsoftonline.com/tenant/v2.0", "https://sts.windows.net/tenant/"):
+        token = jwt.encode({**base, "iss": iss}, key, algorithm="RS256", headers={"kid": "k1"})
+        assert auth._decode_token(token, jwks)["iss"] == iss
+
+    for iss in (
+        "https://sts.windows.net/tenant.attacker/",
+        "https://sts.windows.net/tenant",  # missing trailing slash
+        "https://evil.example/tenant/",
+        "https://login.microsoftonline.com/tenant.attacker/v2.0",
+    ):
+        token = jwt.encode({**base, "iss": iss}, key, algorithm="RS256", headers={"kid": "k1"})
+        with pytest.raises(HTTPException) as exc:
+            auth._decode_token(token, jwks)
+        assert exc.value.detail == "Invalid issuer", iss

@@ -4,6 +4,16 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+## [3.1.2] — 2026-11-12
+
+### Fixed
+
+- **Sign-in failed with `Invalid issuer` for API apps that issue v1 access tokens.** Entra's default for an API app is
+  v1 tokens, whose issuer is `https://sts.windows.net/<tenant>/`; 2.0.1 onwards accepted only the v2 issuer. Both
+  issuers are now accepted, each bound exactly to `AUTH_TENANT_ID`. Rejections log the issuer found in the token.
+  Installs whose API app already issues v2 tokens need no change.
+
+
 ## [3.1.1] — 2026-11-12
 
 Security hardening and documentation for external review. No configuration changes are required.

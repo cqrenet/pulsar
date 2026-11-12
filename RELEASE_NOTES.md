@@ -68,7 +68,7 @@ docker compose up --build
 Pin a specific release in production rather than `latest`:
 
 ```bash
-export PULSAR_VERSION=v3.1.1  # or see VERSION
+export PULSAR_VERSION=v3.1.2  # or see VERSION
 docker pull ghcr.io/cqrenet/pulsar:${PULSAR_VERSION}
 ```
 

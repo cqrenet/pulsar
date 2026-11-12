@@ -49,6 +49,13 @@ async def _get_jwks_async() -> list:
     return await asyncio.to_thread(_get_jwks)
 
 
+def _expected_issuers(tenant_id: str) -> set[str]:
+    return {
+        f"https://login.microsoftonline.com/{tenant_id}/v2.0",
+        f"https://sts.windows.net/{tenant_id}/",
+    }
+
+
 def _roles(claims: dict) -> set[str]:
     return set(claims.get("roles") or claims.get("role") or [])
 
@@ -87,10 +94,11 @@ def _decode_token(token: str, jwks):
         iss = claims.get("iss", "")
         if settings.AUTH_TENANT_ID and tid != settings.AUTH_TENANT_ID:
             raise HTTPException(status_code=401, detail="Invalid tenant")
-        if settings.AUTH_TENANT_ID:
-            expected_issuer = f"https://login.microsoftonline.com/{settings.AUTH_TENANT_ID}/v2.0"
-            if iss != expected_issuer:
-                raise HTTPException(status_code=401, detail="Invalid issuer")
+        # Entra issues v2 tokens (login.microsoftonline.com/<tid>/v2.0) when the API app requests them, and
+        # v1 tokens (sts.windows.net/<tid>/) by default. Both are bound to the configured tenant exactly.
+        if settings.AUTH_TENANT_ID and iss not in _expected_issuers(settings.AUTH_TENANT_ID):
+            logger.warning("Token issuer rejected", issuer=iss, expected_tenant=settings.AUTH_TENANT_ID)
+            raise HTTPException(status_code=401, detail="Invalid issuer")
         # ID tokens share our audience and signing keys but are not API credentials.
         # Entra access tokens always name the calling client (v2 "azp", v1 "appid"); ID tokens never do.
         if not (claims.get("azp") or claims.get("appid")):
