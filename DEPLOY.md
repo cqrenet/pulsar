@@ -23,7 +23,7 @@ PULSAR handles sensitive audit data and admin credentials. It must always be acc
 1. **Pull the latest release image**
 
    ```bash
-   export PULSAR_VERSION=v2.0.1  # or see VERSION
+   export PULSAR_VERSION=v3.0.0  # or see VERSION
    docker compose -f docker-compose.prod.yml pull
    ```
 
@@ -71,6 +71,18 @@ PULSAR handles sensitive audit data and admin credentials. It must always be acc
    ```bash
    curl http://localhost/health
    ```
+
+## Upgrading from 2.x
+
+3.0.0 changes defaults so a misconfigured install fails instead of running open. Check these before `docker compose pull && up -d`:
+
+1. **Authentication.** PULSAR refuses to start with `AUTH_ENABLED=false`. Set `AUTH_ENABLED=true` (with `AUTH_TENANT_ID`, `AUTH_CLIENT_ID`, `AUTH_SCOPE`). For a throwaway development instance only, set `ALLOW_UNAUTHENTICATED=true`.
+2. **CORS.** `CORS_ORIGINS` now defaults to empty (same-origin only). The UI needs no setting; set it only for a browser app on another origin.
+3. **MongoDB root credentials** (provided compose files only). Create `.env.db` from `.env.db.example` with `MONGO_INITDB_ROOT_USERNAME` / `MONGO_INITDB_ROOT_PASSWORD` (the values of your old `MONGO_ROOT_USERNAME` / `MONGO_ROOT_PASSWORD`), then delete the `MONGO_ROOT_*` lines from `.env`. The backend container no longer receives them. If you use your own compose file, make sure only the mongo service reads the root credentials.
+4. **Backend container.** `docker-compose.prod.yml` now runs the backend read-only with no capabilities. If you copied the older file, add `read_only: true`, `tmpfs: [/tmp]`, `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]` and `HOME=/tmp` to the backend service.
+5. **Audit queries.** Audit-trail `action` values are semantic names since 2.0.0; nothing further changes in 3.0.0.
+
+Then pull the new image and start it. Check `/health`, sign in, and look at `/api/source-health`.
 
 ## Upgrading from 1.4.x
 

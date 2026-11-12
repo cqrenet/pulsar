@@ -4,12 +4,13 @@
 
 Please report security problems privately, not in a public issue.
 
-- Use GitHub's **Report a vulnerability** button on the repository's Security tab (private advisory), or
-- email the maintainers at the security contact your CQRE agreement names.
+Use GitHub's private reporting: open the **Security** tab of this repository and choose
+**Report a vulnerability**. Include the affected version or commit, what an attacker can do, and steps to
+reproduce. Do not include real tenant data; redact tenant IDs, domains and secrets.
 
-Include the version (`/api/version`), what you did, what you expected and what happened. We acknowledge a report
-within 3 working days and aim to ship a fix or mitigation for confirmed issues within 30 days. We credit reporters
-who want credit.
+Include the version (`/api/version`), what you did, what you expected and what happened. Target response times (best effort, not a contract): acknowledgement within 5 business days, an assessment
+within 15 business days, and a fix or mitigation plan for confirmed issues after that. Reporters are credited in the
+release notes unless they ask not to be.
 
 ## Supported versions
 

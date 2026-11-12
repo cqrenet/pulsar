@@ -4,6 +4,10 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-11-12
+
+**Major release: secure-by-default configuration.** If you run 2.x, follow [Upgrading from 2.x](DEPLOY.md#upgrading-from-2x) before updating. In short: set `AUTH_ENABLED=true` (or `ALLOW_UNAUTHENTICATED=true` for development), set `CORS_ORIGINS` explicitly, and move the MongoDB root credentials from `.env` to `.env.db` if you use the provided compose files.
+
 ### Security hardening (code audit preparation)
 
 - **Breaking — fails closed without auth.** PULSAR refuses to start with `AUTH_ENABLED=false` unless `ALLOW_UNAUTHENTICATED=true` is set (local development only).
