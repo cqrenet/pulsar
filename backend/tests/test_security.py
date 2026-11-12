@@ -325,7 +325,7 @@ def test_ingestion_uses_signed_certificate_assertion_not_secret(tmp_path, monkey
         def json(self):
             return {"access_token": "tok", "expires_in": 3600}
 
-    monkeypatch.setattr(graph_auth.requests, "post", lambda url, data, timeout: sent.update(data) or Resp())
+    monkeypatch.setattr(graph_auth.requests, "post", lambda url, data, timeout, **kwargs: sent.update(data) or Resp())
     assert graph_auth.get_access_token() == "tok"
 
     assert "client_secret" not in sent
@@ -440,3 +440,23 @@ def test_startup_refuses_to_serve_without_auth_unless_explicitly_allowed(monkeyp
     monkeypatch.setattr(settings, "AUTH_CLIENT_ID", "c")
     monkeypatch.setattr(settings, "AUTH_SCOPE", "s")
     assert settings.startup_errors() == []
+
+
+def test_signing_keys_are_only_fetched_from_microsoft(monkeypatch):
+    class Resp:
+        def __init__(self, body):
+            self.body = body
+
+        def json(self):
+            return self.body
+
+    calls = []
+
+    def fake_get(url, timeout, allow_redirects):
+        calls.append((url, allow_redirects))
+        return Resp({"jwks_uri": "https://evil.example/keys"})
+
+    monkeypatch.setattr(auth.requests, "get", fake_get)
+    with pytest.raises(RuntimeError, match="jwks_uri"):
+        auth._fetch_jwks_blocking()
+    assert calls and all(allow is False for _, allow in calls)  # redirects are never followed

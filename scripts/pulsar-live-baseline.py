@@ -71,7 +71,7 @@ def probe(base_url: str, paths: tuple[str, ...], timeout: float, insecure: bool)
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", default="https://pulsar.cqre.net")
+    parser.add_argument("--base-url", required=True, help="deployment to probe, e.g. https://pulsar.example.com")
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--insecure", action="store_true", help="skip TLS certificate verification for a dev target")
     args = parser.parse_args()

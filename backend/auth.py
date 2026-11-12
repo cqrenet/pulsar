@@ -2,6 +2,7 @@ import asyncio
 import json
 import threading
 import time
+from urllib.parse import urlparse
 
 import requests
 import structlog
@@ -20,9 +21,13 @@ def _fetch_jwks_blocking() -> list:
     oidc = requests.get(
         f"https://login.microsoftonline.com/{settings.AUTH_TENANT_ID}/v2.0/.well-known/openid-configuration",
         timeout=10,
+        allow_redirects=False,
     ).json()
     jwks_uri = oidc["jwks_uri"]
-    return requests.get(jwks_uri, timeout=10).json()["keys"]
+    # The signing keys decide who can sign in: only ever fetch them from Microsoft's identity host.
+    if urlparse(jwks_uri).scheme != "https" or urlparse(jwks_uri).hostname != "login.microsoftonline.com":
+        raise RuntimeError(f"Unexpected jwks_uri host in OpenID configuration: {urlparse(jwks_uri).hostname}")
+    return requests.get(jwks_uri, timeout=10, allow_redirects=False).json()["keys"]
 
 
 def _get_jwks():
@@ -96,7 +101,9 @@ def _decode_token(token: str, jwks):
             if expected_scope not in token_scopes:
                 raise HTTPException(status_code=401, detail="Invalid token: required scope missing")
         return claims
-    except HTTPException:
+    except HTTPException as exc:
+        # Policy rejections (tenant, issuer, scope, ID token, unknown key) are logged like signature failures.
+        logger.warning("Token verification failed", error_type="policy", detail=exc.detail)
         raise
     except ExpiredSignatureError as exc:
         logger.warning("Token verification failed", error_type="ExpiredSignatureError", error=str(exc))
@@ -145,6 +152,7 @@ async def require_auth(authorization: str | None = Header(None), request: Reques
 async def require_admin(user: dict = Depends(require_auth)) -> dict:
     """Gate configuration changes (alert rules, manual fetch) behind AUTH_ADMIN_ROLES."""
     if settings.AUTH_ENABLED and not _allowed(user, settings.AUTH_ADMIN_ROLES, set()):
+        logger.warning("Access denied: admin role required", sub=user.get("sub"))
         raise HTTPException(status_code=403, detail="Admin role required")
     return user
 
@@ -156,6 +164,7 @@ async def verify_bearer(token: str) -> dict:
     """
     claims = _decode_token(token, await _get_jwks_async())
     if not _allowed(claims, settings.AUTH_ALLOWED_ROLES, settings.AUTH_ALLOWED_GROUPS):
+        logger.warning("Access denied: no allowed role or group", sub=claims.get("sub"))
         raise HTTPException(status_code=403, detail="Forbidden")
     return claims
 

@@ -6,7 +6,7 @@ from database import client
 from fastapi import Request
 
 logger = structlog.get_logger("pulsar.audit")
-# Own database: the app's MongoDB user may only insert and read here, never update or delete.
+# Own database: the app's MongoDB user may only insert here (deploy/mongo-init), never read, update or delete.
 audit_collection = client[settings.AUDIT_DB_NAME]["pulsar_audit"]
 
 
