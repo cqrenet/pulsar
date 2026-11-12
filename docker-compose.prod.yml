@@ -1,5 +1,5 @@
 # Images are pinned by digest; Dependabot proposes updates (.github/dependabot.yml).
-# Required in .env: MONGO_ROOT_USERNAME, MONGO_ROOT_PASSWORD, MONGO_APP_PASSWORD, REDIS_PASSWORD
+# Required in .env: MONGO_APP_PASSWORD, REDIS_PASSWORD. Required in .env.db: MONGO_INITDB_ROOT_USERNAME / _PASSWORD
 # (generate each with: openssl rand -hex 32), plus secrets/pulsar-ingestion.pem (see DEPLOY.md).
 services:
   redis:
@@ -29,9 +29,10 @@ services:
     container_name: pulsar-mongo
     restart: always
     # Do NOT expose MongoDB port to the host in production
+    # Root credentials come from .env.db, which only this container reads.
+    env_file:
+      - .env.db
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
       # Used by deploy/mongo-init to create the least-privilege "pulsar" user
       MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD in .env}
     volumes:
@@ -57,8 +58,19 @@ services:
       MONGO_URI: mongodb://pulsar:${MONGO_APP_PASSWORD}@mongo:27017/?authSource=admin
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CLIENT_CERTIFICATE_PATH: /run/secrets/pulsar_ingestion_cert
+      HOME: /tmp
     secrets:
       - pulsar_ingestion_cert
+    # Runtime hardening: nothing in the image needs to write outside /tmp or hold extra privileges.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    pids_limit: 256
     depends_on:
       mongo:
         condition: service_healthy

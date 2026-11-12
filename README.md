@@ -60,8 +60,8 @@ Copy `.env.example` to `.env` and fill in your credentials. Key settings:
 TENANT_ID=your-tenant-id
 CLIENT_ID=your-ingestion-app-client-id
 
-# Required (Docker Compose): openssl rand -hex 32
-MONGO_ROOT_PASSWORD=...
+# Required (Docker Compose): openssl rand -hex 32. The MongoDB root password goes in .env.db instead
+# (cp .env.db.example .env.db), so the backend container never receives it.
 MONGO_APP_PASSWORD=...
 REDIS_PASSWORD=...
 

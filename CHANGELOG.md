@@ -4,6 +4,20 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+### Security hardening (code audit preparation)
+
+- **Breaking — fails closed without auth.** PULSAR refuses to start with `AUTH_ENABLED=false` unless `ALLOW_UNAUTHENTICATED=true` is set (local development only).
+- **Breaking — `CORS_ORIGINS` defaults to empty** (same-origin only) instead of `*`.
+- **Breaking (Docker Compose) — MongoDB root credentials moved to `.env.db`** (see `.env.db.example`) and are read only by the mongo container. Before, `env_file: .env` put the root password into the backend container, defeating the least-privilege `pulsar` user. Move `MONGO_ROOT_USERNAME` / `MONGO_ROOT_PASSWORD` from `.env` to `.env.db` as `MONGO_INITDB_ROOT_USERNAME` / `MONGO_INITDB_ROOT_PASSWORD`.
+- **Backend container hardening** in `docker-compose.prod.yml`: read-only root filesystem (`/tmp` is a tmpfs), all capabilities dropped, `no-new-privileges`, memory and pid limits.
+- **Tokens must carry `exp`, `iss` and `aud`, and a matching `tid`.** Previously a token without `exp` verified.
+- **Client-supplied `x-request-id`** is accepted only as 8–64 characters of `[A-Za-z0-9._-]`; anything else is replaced. It is written to audit records.
+- **Privacy filter** also hides documents that have no `service` field (alerts created before the field existed).
+- **Outbound HTTP:** alert webhooks, SIEM forwarding and all Graph/Office 365 calls no longer follow redirects, and webhook/SIEM deliveries count only 2xx as success. Upstream JSON responses are read with a 10 MiB limit, and Office 365 audit `contentUri` values must be HTTPS on a Microsoft Management API host. Failed Office 365 listings no longer put the upstream response text in errors.
+- **Inbound webhook:** the Graph notification endpoint reads at most 256 KiB and 100 notifications per request and rejects malformed structures.
+- **Database load:** summaries, filter options and counts run with a 5 s server-side time limit.
+- **Tests:** every `/api` route must require auth except a short allow-list, and the set of admin-only routes is pinned.
+
 ## [2.0.1] — 2026-11-11
 
 ### Fixed

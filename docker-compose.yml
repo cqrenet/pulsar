@@ -1,5 +1,5 @@
 # Development: builds the backend from source. Same users and passwords as production.
-# Required in .env: MONGO_ROOT_USERNAME, MONGO_ROOT_PASSWORD, MONGO_APP_PASSWORD, REDIS_PASSWORD.
+# Required in .env: MONGO_APP_PASSWORD, REDIS_PASSWORD. Required in .env.db: MONGO_INITDB_ROOT_USERNAME / _PASSWORD.
 # Ingestion is optional in dev: put the certificate in secrets/pulsar-ingestion.pem to enable it.
 services:
   redis:
@@ -19,9 +19,10 @@ services:
     container_name: pulsar-mongo
     restart: always
     # Ports not exposed to host; backend connects via Docker network
+    # Root credentials come from .env.db, which only this container reads.
+    env_file:
+      - .env.db
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
       MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD in .env}
     volumes:
       - mongo_data:/data/db

@@ -53,8 +53,10 @@ PULSAR handles sensitive audit data and admin credentials. It must always be acc
 
    ```bash
    cp .env.example .env
-   # Paste the lines printed by the bootstrap script.
-   # Set MONGO_ROOT_PASSWORD, MONGO_APP_PASSWORD and REDIS_PASSWORD (openssl rand -hex 32 each).
+   cp .env.db.example .env.db && chmod 600 .env .env.db
+   # Paste the lines printed by the bootstrap script into .env.
+   # Set MONGO_APP_PASSWORD and REDIS_PASSWORD in .env, and MONGO_INITDB_ROOT_PASSWORD in .env.db
+   # (openssl rand -hex 32 each). The root password lives only in .env.db: the backend never sees it.
    # If using the MCP SSE endpoint behind a reverse proxy, also set MCP_ALLOWED_HOSTS
    ```
 
@@ -90,6 +92,7 @@ This release splits the Entra app registration in two, replaces the client secre
    - set `CLIENT_ID` to the new **ingestion** app ID and delete `CLIENT_SECRET`;
    - add the `AUTH_*`, `PRIVACY_SERVICE_ROLES` and `MCP_CLIENT_ID` lines the script printed (`AUTH_CLIENT_ID` is your old `CLIENT_ID`);
    - add `MONGO_APP_PASSWORD` and `REDIS_PASSWORD` (`openssl rand -hex 32` each); delete any `MONGO_URI` / `REDIS_URL` lines.
+   - move the MongoDB root credentials out of `.env` into a new `.env.db` (`cp .env.db.example .env.db`): `MONGO_ROOT_USERNAME` / `MONGO_ROOT_PASSWORD` become `MONGO_INITDB_ROOT_USERNAME` / `MONGO_INITDB_ROOT_PASSWORD`. The backend must never receive them.
 6. **Create the MongoDB app user** on the existing database (init scripts only run on an empty volume). This also copies the audit trail into its own database:
 
    ```bash

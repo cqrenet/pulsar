@@ -368,14 +368,14 @@ Notable optional variables:
 
 | Variable | Purpose |
 |----------|---------|
-| `AUTH_ENABLED` | Enable OIDC Bearer token protection |
+| `AUTH_ENABLED` | Enable OIDC Bearer token protection. PULSAR refuses to start with it off unless `ALLOW_UNAUTHENTICATED=true` (local development only) |
 | `AUTH_TENANT_ID` / `AUTH_CLIENT_ID` / `AUTH_SCOPE` | OIDC provider config |
 | `AUTH_ALLOWED_ROLES` / `AUTH_ALLOWED_GROUPS` | Comma-separated access control lists |
 | `AUTH_ADMIN_ROLES` | Roles allowed to change alert rules and trigger fetches (empty = all signed-in users) |
 | `TRUSTED_PROXIES` | IPs/CIDRs whose `X-Forwarded-For` is trusted for metrics allowlist and rate limiting |
 | `ENABLE_PERIODIC_FETCH` / `FETCH_INTERVAL_MINUTES` | Background ingestion loop |
 | `RETENTION_DAYS` | MongoDB TTL index for automatic data expiry (0 = disabled) |
-| `CORS_ORIGINS` | Comma-separated allowed origins (default `*`) |
+| `CORS_ORIGINS` | Comma-separated allowed origins (default empty = same-origin only) |
 | `DOCS_ENABLED` | Expose `/docs` and `/redoc` (default `false`) |
 | `SIEM_ENABLED` / `SIEM_WEBHOOK_URL` / `SIEM_ALLOWED_DOMAINS` | Forward events to external SIEM |
 | `ALERTS_ENABLED` / `ALERT_WEBHOOK_URL` / `ALERT_WEBHOOK_FORMAT` | Rule-based alerting |
