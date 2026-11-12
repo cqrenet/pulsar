@@ -14,6 +14,15 @@ UI changes only. No configuration changes are required.
 
 - Phone layout: below 640 px the header and event table fit the screen; the page no longer scrolls sideways.
 
+## [3.1.4] — 2026-11-12
+
+No configuration changes are required.
+
+### Changed
+
+- The sign-in splash shows the PULSAR logo.
+- Releases are automatic: pushing a `v*` tag builds and scans the image, then creates the GitHub Release from that version's changelog section.
+
 ## [Unreleased]
 
 ### Changed
