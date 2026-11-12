@@ -4,6 +4,10 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+## [3.1.0] — 2026-11-12
+
+No configuration changes are required. Operators who build their own images or run the app outside Docker need Python 3.14.
+
 ### Changed (dependency update)
 
 - **Python 3.14** (was 3.11) in the image, CI and the hash-locked requirements. Run `pip-compile` with the same Python minor version; the lock header says how.

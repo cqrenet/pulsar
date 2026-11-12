@@ -312,7 +312,7 @@ docker compose up --build
 ### Production (pre-built image)
 
 ```bash
-export PULSAR_VERSION=v3.0.0  # or see VERSION
+export PULSAR_VERSION=v3.1.0  # or see VERSION
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
