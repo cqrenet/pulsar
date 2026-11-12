@@ -18,6 +18,11 @@ UI changes only. No configuration changes are required.
 
 ### Changed
 
+- The sign-in splash shows the PULSAR logo.
+- Releases are automatic: pushing a `v*` tag builds and scans the image, then creates the GitHub Release from that version's changelog section (marked Latest). A manual run of the release workflow with an existing tag re-creates only the GitHub Release, and never rebuilds the image.
+
+### Changed
+
 - **Phone layout.** At 640 px and below the header keeps only the essentials (brand, health dots, theme, Fetch, Refresh, Login), and the event table fits the screen with the operation text wrapping. The page no longer scrolls sideways on phones.
 - **Sign-in splash.** When sign-in is required and the browser has no token, the UI shows a "Sign in with Microsoft" screen instead of an empty event list. It appears after sign-out and when a session expires.
 
