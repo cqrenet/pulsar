@@ -4,6 +4,10 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+## [3.1.1] — 2026-11-12
+
+Security hardening and documentation for external review. No configuration changes are required.
+
 ### Security
 
 - Microsoft identity calls (OpenID configuration, JWKS, token endpoint) no longer follow redirects; the JWKS URI must be
