@@ -89,10 +89,10 @@ async def _periodic_fetch():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    missing = settings.missing_auth_settings()
-    if missing:
-        # Fail closed: a half-configured auth setup must not come up and serve data.
-        raise RuntimeError(f"AUTH_ENABLED=true but {', '.join(missing)} not set. Refusing to start.")
+    errors = settings.startup_errors()
+    if errors:
+        # Fail closed: a missing or half-configured auth setup must not come up and serve data.
+        raise RuntimeError("; ".join(errors) + ". Refusing to start.")
     setup_indexes()
     seed_default_rules()
     logger.info(

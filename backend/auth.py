@@ -68,7 +68,8 @@ def _decode_token(token: str, jwks):
             raise HTTPException(status_code=401, detail="Invalid token: signing key not found")
 
         pub_key = RSAAlgorithm.from_jwk(json.dumps(key_dict))
-        decode_kwargs = {"algorithms": ["RS256"]}
+        # A token without exp, iss or aud must never be valid (PyJWT only checks claims that are present).
+        decode_kwargs = {"algorithms": ["RS256"], "options": {"require": ["exp", "iss", "aud"]}}
         if settings.AUTH_CLIENT_ID:
             # Entra v2.0 tokens issued for a custom scope (e.g. api://<id>/user_impersonation)
             # carry aud = "api://<clientId>", not the bare GUID.  Accept both so operators
@@ -79,14 +80,21 @@ def _decode_token(token: str, jwks):
 
         tid = claims.get("tid")
         iss = claims.get("iss", "")
-        if settings.AUTH_TENANT_ID and tid and tid != settings.AUTH_TENANT_ID:
+        if settings.AUTH_TENANT_ID and tid != settings.AUTH_TENANT_ID:
             raise HTTPException(status_code=401, detail="Invalid tenant")
-        if settings.AUTH_TENANT_ID and settings.AUTH_TENANT_ID not in iss:
-            raise HTTPException(status_code=401, detail="Invalid issuer")
+        if settings.AUTH_TENANT_ID:
+            expected_issuer = f"https://login.microsoftonline.com/{settings.AUTH_TENANT_ID}/v2.0"
+            if iss != expected_issuer:
+                raise HTTPException(status_code=401, detail="Invalid issuer")
         # ID tokens share our audience and signing keys but are not API credentials.
         # Entra access tokens always name the calling client (v2 "azp", v1 "appid"); ID tokens never do.
         if not (claims.get("azp") or claims.get("appid")):
             raise HTTPException(status_code=401, detail="Invalid token: access token required")
+        if settings.AUTH_SCOPE:
+            expected_scope = settings.AUTH_SCOPE.rsplit("/", 1)[-1]
+            token_scopes = set((claims.get("scp") or "").split())
+            if expected_scope not in token_scopes:
+                raise HTTPException(status_code=401, detail="Invalid token: required scope missing")
         return claims
     except HTTPException:
         raise
@@ -118,7 +126,8 @@ def apply_privacy_filter(query: dict, claims: dict | None) -> dict:
         return query
     hidden = {}
     if settings.PRIVACY_SERVICES:
-        hidden["service"] = {"$nin": sorted(settings.PRIVACY_SERVICES)}
+        # $exists: documents with no service at all (e.g. alerts from before the field existed) are hidden too.
+        hidden["service"] = {"$exists": True, "$nin": sorted(settings.PRIVACY_SERVICES)}
     if settings.PRIVACY_SENSITIVE_OPERATIONS:
         hidden["operation"] = {"$nin": sorted(settings.PRIVACY_SENSITIVE_OPERATIONS)}
     return {"$and": [query, hidden]} if query else hidden

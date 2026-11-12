@@ -1,5 +1,6 @@
 """HTTP middleware: correlation IDs, metrics, security headers, rate limiting and request auditing."""
 
+import re
 import time
 import uuid
 
@@ -17,6 +18,7 @@ logger = structlog.get_logger("pulsar.middleware")
 
 RATE_LIMIT_EXEMPT_PATHS = {"/api/config/auth", "/api/config/features", "/health", "/metrics"}
 MUTATING_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
+REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{8,64}")
 
 # Exact library paths, not whole CDNs: any package on jsdelivr would otherwise be a script gadget.
 # No 'unsafe-eval': Alpine's CSP build evaluates templates without eval/new Function.
@@ -39,7 +41,9 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
     """Inject or propagate a correlation ID for every request."""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        cid = request.headers.get("x-request-id") or uuid.uuid4().hex
+        supplied = request.headers.get("x-request-id", "")
+        # Client-supplied IDs end up in audit records and response headers: accept only a safe shape.
+        cid = supplied if REQUEST_ID_PATTERN.fullmatch(supplied) else uuid.uuid4().hex
         structlog.contextvars.bind_contextvars(correlation_id=cid)
         response = await call_next(request)
         response.headers["x-request-id"] = cid

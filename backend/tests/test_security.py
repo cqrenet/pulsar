@@ -63,12 +63,12 @@ def test_audit_trail_records_the_real_user(client, signed_in):
 
 
 def test_one_audit_record_per_mutation_with_action_detail_and_request_id(client, signed_in):
-    headers = {**signed_in("admin"), "x-request-id": "req-123"}
+    headers = {**signed_in("admin"), "x-request-id": "req-12345678"}
     assert client.post("/api/rules", json=RULE, headers=headers).status_code == 200
     records = list(audit_trail.audit_collection.find({"resource": "/api/rules"}))
     assert len(records) == 1
     rec = records[0]
-    assert rec["action"] == "create_rule" and rec["user"] == "admin-sub" and rec["request_id"] == "req-123"
+    assert rec["action"] == "create_rule" and rec["user"] == "admin-sub" and rec["request_id"] == "req-12345678"
     assert rec["details"] == {"name": "r1", "enabled": True, "method": "POST", "status_code": 200}
 
 
@@ -103,6 +103,28 @@ def _token(key, kid, **claims):
     return jwt.encode({**base, "exp": int(time.time()) + 600, **claims}, key, algorithm="RS256", headers={"kid": kid})
 
 
+def test_token_must_have_exact_tenant_and_issuer(monkeypatch):
+    monkeypatch.setattr("config.settings.AUTH_CLIENT_ID", "api-guid")
+    monkeypatch.setattr("config.settings.AUTH_TENANT_ID", "tenant")
+    monkeypatch.setattr("config.settings.AUTH_SCOPE", "api://api-guid/user_impersonation")
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwks = [{**RSAAlgorithm.to_jwk(key.public_key(), as_dict=True), "kid": "k1"}]
+
+    with pytest.raises(HTTPException) as exc:
+        auth._decode_token(
+            _token(
+                key,
+                "k1",
+                tid="tenant",
+                iss="https://login.microsoftonline.com/tenant.attacker/v2.0",
+                azp="spa",
+                scp="user_impersonation",
+            ),
+            jwks,
+        )
+    assert exc.value.status_code == 401
+
+
 def test_id_tokens_are_not_accepted_as_api_credentials(monkeypatch):
     monkeypatch.setattr("config.settings.AUTH_CLIENT_ID", "api-guid")
     monkeypatch.setattr("config.settings.AUTH_TENANT_ID", "tenant")
@@ -113,6 +135,18 @@ def test_id_tokens_are_not_accepted_as_api_credentials(monkeypatch):
         auth._decode_token(_token(key, "k1", sub="u"), jwks)  # ID token: no azp/appid
     assert exc.value.status_code == 401
     assert auth._decode_token(_token(key, "k1", sub="u", azp="spa", scp="user_impersonation"), jwks)["sub"] == "u"
+
+
+def test_access_tokens_must_contain_configured_scope(monkeypatch):
+    monkeypatch.setattr("config.settings.AUTH_CLIENT_ID", "api-guid")
+    monkeypatch.setattr("config.settings.AUTH_TENANT_ID", "tenant")
+    monkeypatch.setattr("config.settings.AUTH_SCOPE", "api://api-guid/user_impersonation")
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwks = [{**RSAAlgorithm.to_jwk(key.public_key(), as_dict=True), "kid": "k1"}]
+
+    with pytest.raises(HTTPException) as exc:
+        auth._decode_token(_token(key, "k1", sub="u", azp="spa", roles=["PulsarReader"]), jwks)
+    assert exc.value.status_code == 401
 
 
 # --- Client IP / X-Forwarded-For -------------------------------------------------------------
@@ -302,3 +336,98 @@ def test_ingestion_uses_signed_certificate_assertion_not_secret(tmp_path, monkey
     der = cert.public_bytes(serialization.Encoding.DER)
     expected = base64.urlsafe_b64encode(hashlib.sha256(der).digest()).rstrip(b"=").decode()
     assert header["x5t#S256"] == expected and "x5t" in header
+
+
+# --- Hardening regressions ---------------------------------------------------------------------
+
+
+def test_tokens_must_carry_exp_iss_aud_and_tid(monkeypatch):
+    monkeypatch.setattr("config.settings.AUTH_CLIENT_ID", "api-guid")
+    monkeypatch.setattr("config.settings.AUTH_TENANT_ID", "tenant")
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwks = [{**RSAAlgorithm.to_jwk(key.public_key(), as_dict=True), "kid": "k1"}]
+    base = {
+        "aud": "api-guid",
+        "tid": "tenant",
+        "iss": "https://login.microsoftonline.com/tenant/v2.0",
+        "azp": "spa",
+        "scp": "user_impersonation",
+    }
+    no_exp = jwt.encode(base, key, algorithm="RS256", headers={"kid": "k1"})
+    no_tid = jwt.encode(
+        {k: v for k, v in base.items() if k != "tid"} | {"exp": int(time.time()) + 600},
+        key,
+        algorithm="RS256",
+        headers={"kid": "k1"},
+    )
+    for token in (no_exp, no_tid):
+        with pytest.raises(HTTPException) as exc:
+            auth._decode_token(token, jwks)
+        assert exc.value.status_code == 401
+    ok = jwt.encode({**base, "exp": int(time.time()) + 600}, key, algorithm="RS256", headers={"kid": "k1"})
+    assert auth._decode_token(ok, jwks)["tid"] == "tenant"
+
+
+def test_client_supplied_request_ids_are_sanitised(client):
+    for bad in ('aaaaaaaa"<script>', "x" * 200, "short"):
+        got = client.get("/api/version", headers={"x-request-id": bad}).headers["x-request-id"]
+        assert got != bad and len(got) == 32
+    kept = client.get("/api/version", headers={"x-request-id": "trace-0123.abc_DEF"}).headers["x-request-id"]
+    assert kept == "trace-0123.abc_DEF"
+
+
+def test_privacy_filter_hides_documents_without_a_service(client, monkeypatch):
+    import rules
+
+    monkeypatch.setattr("config.settings.PRIVACY_SERVICES", {"Exchange"})
+    monkeypatch.setattr("config.settings.PRIVACY_SERVICE_ROLES", {"PrivacyReader"})
+    rules.alerts_collection.insert_many([{"status": "open", "severity": "low", "rule_name": "legacy"}])
+    assert client.get("/api/alerts?status=open").json()["items"] == []
+
+
+# Routes that are deliberately reachable without a token. Anything else under /api must require auth.
+PUBLIC_API_ROUTES = {"/api/config/auth", "/api/config/features", "/api/version", "/api/webhooks/graph"}
+ADMIN_ONLY_ROUTES = {
+    ("GET", "/api/fetch-audit-logs"),
+    ("POST", "/api/rules"),
+    ("PUT", "/api/rules/{rule_id}"),
+    ("DELETE", "/api/rules/{rule_id}"),
+}
+
+
+def _dependency_calls(dependant):
+    for dep in dependant.dependencies:
+        yield dep.call
+        yield from _dependency_calls(dep)
+
+
+def test_every_api_route_requires_auth_and_only_expected_ones_need_admin():
+    from fastapi.routing import APIRoute
+    from main import app
+
+    unprotected, admin = [], set()
+    for route in app.routes:
+        if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
+            continue
+        calls = set(_dependency_calls(route.dependant))
+        if auth.require_admin in calls:
+            admin |= {(m, route.path) for m in route.methods}
+        if route.path not in PUBLIC_API_ROUTES and auth.require_auth not in calls:
+            unprotected.append(route.path)
+    assert not unprotected, f"routes without require_auth: {unprotected}"
+    assert admin == ADMIN_ONLY_ROUTES
+
+
+def test_startup_refuses_to_serve_without_auth_unless_explicitly_allowed(monkeypatch):
+    from config import settings
+
+    monkeypatch.setattr(settings, "AUTH_ENABLED", False)
+    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED", False)
+    assert any("ALLOW_UNAUTHENTICATED" in e for e in settings.startup_errors())
+    monkeypatch.setattr(settings, "ALLOW_UNAUTHENTICATED", True)
+    assert settings.startup_errors() == []
+    monkeypatch.setattr(settings, "AUTH_ENABLED", True)
+    monkeypatch.setattr(settings, "AUTH_TENANT_ID", "t")
+    monkeypatch.setattr(settings, "AUTH_CLIENT_ID", "c")
+    monkeypatch.setattr(settings, "AUTH_SCOPE", "s")
+    assert settings.startup_errors() == []

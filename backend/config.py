@@ -47,6 +47,8 @@ class Settings(BaseSettings):
 
     # Auth (OIDC/Bearer) settings
     AUTH_ENABLED: bool = False
+    # Local development only. PULSAR refuses to start without auth unless this is set.
+    ALLOW_UNAUTHENTICATED: bool = False
     AUTH_TENANT_ID: str = ""
     AUTH_CLIENT_ID: str = ""
     AUTH_SCOPE: str = ""
@@ -59,7 +61,7 @@ class Settings(BaseSettings):
     RETENTION_DAYS: int = 0
 
     # CORS
-    CORS_ORIGINS: CsvList = Field(default_factory=lambda: ["*"])
+    CORS_ORIGINS: CsvList = Field(default_factory=list)  # empty = same-origin only
 
     # SIEM export
     SIEM_ENABLED: bool = False
@@ -155,6 +157,18 @@ class Settings(BaseSettings):
         # CLIENT_ID is the ingestion app, which exposes no API.
         self.AUTH_TENANT_ID = self.AUTH_TENANT_ID or self.TENANT_ID
         return self
+
+    def startup_errors(self) -> list[str]:
+        """Reasons PULSAR must refuse to start. Empty when the configuration is safe to serve data."""
+        errors = []
+        missing = self.missing_auth_settings()
+        if missing:
+            errors.append(f"AUTH_ENABLED=true but {', '.join(missing)} not set")
+        if not self.AUTH_ENABLED and not self.ALLOW_UNAUTHENTICATED:
+            errors.append(
+                "AUTH_ENABLED=false (set AUTH_ENABLED=true, or ALLOW_UNAUTHENTICATED=true for local development only)"
+            )
+        return errors
 
     def missing_auth_settings(self) -> list[str]:
         """Settings that must be present when AUTH_ENABLED=true. Startup refuses to continue without them."""
