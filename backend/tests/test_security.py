@@ -395,27 +395,36 @@ ADMIN_ONLY_ROUTES = {
 }
 
 
-def _dependency_calls(dependant):
-    for dep in dependant.dependencies:
-        yield dep.call
-        yield from _dependency_calls(dep)
+def test_every_api_route_enforces_authentication_and_roles(client, signed_in, monkeypatch):
+    """Call every documented /api route as a stranger and as a plain reader.
 
+    Behavioural on purpose: it does not depend on how FastAPI stores routes, so a new route that forgets
+    require_auth (or require_admin) fails here whatever the FastAPI version.
+    """
+    import re
 
-def test_every_api_route_requires_auth_and_only_expected_ones_need_admin():
-    from fastapi.routing import APIRoute
-    from main import app
-
-    unprotected, admin = [], set()
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
+    monkeypatch.setattr("config.settings.AUTH_ADMIN_ROLES", {"PulsarAdmin"})
+    paths = client.app.openapi()["paths"]
+    seen_admin, problems, checked = set(), [], 0
+    for path, operations in paths.items():
+        if not path.startswith("/api/") or path in PUBLIC_API_ROUTES:
             continue
-        calls = set(_dependency_calls(route.dependant))
-        if auth.require_admin in calls:
-            admin |= {(m, route.path) for m in route.methods}
-        if route.path not in PUBLIC_API_ROUTES and auth.require_auth not in calls:
-            unprotected.append(route.path)
-    assert not unprotected, f"routes without require_auth: {unprotected}"
-    assert admin == ADMIN_ONLY_ROUTES
+        url = re.sub(r"\{[^}]+\}", "x", path)
+        for method in operations:
+            if method not in {"get", "post", "put", "patch", "delete"}:
+                continue
+            checked += 1
+            anonymous = client.request(method.upper(), url).status_code
+            reader = client.request(method.upper(), url, headers=signed_in("reader")).status_code
+            if anonymous != 401:
+                problems.append(f"{method.upper()} {path}: anonymous got {anonymous}, expected 401")
+            if reader == 403:
+                seen_admin.add((method.upper(), path))
+            elif reader == 401:
+                problems.append(f"{method.upper()} {path}: a signed-in reader got 401")
+    assert checked >= 15, f"only {checked} routes found - the check is not looking at the real API"
+    assert not problems, problems
+    assert seen_admin == ADMIN_ONLY_ROUTES
 
 
 def test_startup_refuses_to_serve_without_auth_unless_explicitly_allowed(monkeypatch):
