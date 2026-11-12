@@ -2,6 +2,18 @@
 
 All notable changes to PULSAR will be documented here.
 
+## [3.1.3] — 2026-11-12
+
+UI changes only. No configuration changes are required.
+
+### Added
+
+- Sign-in splash for logged-out users: when sign-in is required and the browser has no token, the UI shows a "Sign in with Microsoft" screen instead of an empty event list.
+
+### Fixed
+
+- Phone layout: below 640 px the header and event table fit the screen; the page no longer scrolls sideways.
+
 ## [Unreleased]
 
 ### Changed
