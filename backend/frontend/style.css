@@ -1219,6 +1219,20 @@ body {
 
 @media (max-width: 640px) {
   .app-header { gap: 8px; padding: 0 12px; }
+  /* Phone: keep brand, health dots, theme, Fetch/Refresh/Login. Hide the rest; the status line is in the table. */
+  .version-tag, .header-status, .user-name, .login-hint { display: none; }
+  .header-brand { font-size: 13px; }
+  .header-right { gap: 4px; min-width: 0; }
+  .header-right .btn { padding: 4px 8px; }
+  .header-health { margin-left: 4px; }
+  /* Table: fit the phone width. Keep overflow clipped (not scrollable): a scroll box would break the sticky header. */
+  .event-table thead th, .event-row td { padding-left: 8px; padding-right: 8px; }
+  .event-table .col-op { min-width: 0; }
+  .event-table .col-time { width: 72px; }
+  .event-table { table-layout: fixed; }
+  .event-table .col-result { width: 78px; white-space: nowrap; }
+  .event-table .col-expand { width: 28px; }
+  .event-row .op-summary { white-space: normal; overflow-wrap: anywhere; }
   .tab-content { padding: 0 12px 24px; }
   .filter-bar__main { gap: 4px; }
   .filter-search { max-width: 100%; min-width: 120px; }
