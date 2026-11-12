@@ -3,6 +3,11 @@ const DEFAULT_SCOPES = ['openid', 'profile', 'email'];
 
 (window.PulsarParts ??= {}).auth = () => ({
   authBtnText: 'Login',
+  // Shown as the sign-in splash: auth is on and this browser holds no token.
+  needsLogin() {
+    return this.authEnabled() && !this.accessToken;
+  },
+
   authConfig: null,
   msalInstance: null,
   account: null,
@@ -103,7 +108,11 @@ const DEFAULT_SCOPES = ['openid', 'profile', 'email'];
   },
 
   async toggleAuth() {
-    if (!this.authEnabled() || !this.msalInstance) return;
+    if (!this.authEnabled()) return;
+    if (!this.msalInstance) {
+      this.statusText = 'Sign-in is not ready yet. Check your network connection and reload the page.';
+      return;
+    }
     if (this.account) {
       const acc = this.msalInstance.getActiveAccount();
       this.accessToken = null;
