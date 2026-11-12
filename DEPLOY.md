@@ -23,7 +23,7 @@ PULSAR handles sensitive audit data and admin credentials. It must always be acc
 1. **Pull the latest release image**
 
    ```bash
-   export PULSAR_VERSION=v3.1.0  # or see VERSION
+   export PULSAR_VERSION=v3.1.1  # or see VERSION
    docker compose -f docker-compose.prod.yml pull
    ```
 
