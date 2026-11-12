@@ -4,7 +4,7 @@
 
 PULSAR runs as three Docker containers orchestrated by Docker Compose:
 
-- **backend** — FastAPI application (Gunicorn + Uvicorn workers), binds to `127.0.0.1:8000`
+- **backend** — FastAPI application (Gunicorn with one Uvicorn worker), binds to `127.0.0.1:8000`, read-only root filesystem, no Linux capabilities
 - **mongo** — MongoDB data store (internal network only, never exposed)
 - **redis** — Valkey/Redis cache (internal network only, never exposed)
 
@@ -130,8 +130,10 @@ This release splits the Entra app registration in two, replaces the client secre
 
 ## Updating to a new release
 
+Read the release's changelog entry and its upgrade section first.
+
 ```bash
-export PULSAR_VERSION=v1.x.x
+export PULSAR_VERSION=v3.x.x
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -190,7 +192,7 @@ nginx:
     - pulsar-public
 ```
 
-Place your TLS certificates in `nginx/ssl/` and uncomment the HTTPS server block in `nginx/nginx.conf`.
+Put `cert.pem` and `key.pem` in `nginx/ssl/`. The configuration serves HTTPS only (port 80 redirects), limits request bodies to 1 MiB, and replaces any client-supplied `X-Forwarded-For`. Set `TRUSTED_PROXIES` to the nginx container's address.
 
 ### Azure Application Gateway / Container Apps ingress
 
@@ -198,18 +200,16 @@ For Azure-native deployments, TLS and routing are handled by the platform. No ad
 
 ## Security hardening checklist
 
-- [ ] Set `AUTH_ENABLED=true` and configure `AUTH_ALLOWED_ROLES` or `AUTH_ALLOWED_GROUPS`
-- [ ] Assign PULSAR app roles in Entra (assignment is required for sign-in)
-- [ ] Keep `secrets/pulsar-ingestion.pem` owned by uid 10001 with mode 400; rotate it before it expires
-- [ ] Set `AUTH_SCOPE` (e.g. `api://<client-id>/user_impersonation`) — ID tokens are not accepted
-- [ ] Set `AUTH_ADMIN_ROLES` so only admins can change alert rules or trigger a fetch
-- [ ] Set `TRUSTED_PROXIES` to your reverse proxy if it is not on a private network
-- [ ] Set explicit `CORS_ORIGINS` — never use `*` with auth enabled
-- [ ] Set `DOCS_ENABLED=false` (default) to hide OpenAPI docs
-- [ ] Configure `WEBHOOK_CLIENT_SECRET` — Graph webhook notifications are rejected without it
-- [ ] Set `SIEM_ALLOWED_DOMAINS` if using SIEM forwarding
-- [ ] Review `METRICS_ALLOWED_IPS` — defaults to private networks only
-- [ ] Set `MCP_ALLOWED_HOSTS` if exposing the MCP SSE endpoint behind a reverse proxy
+The full checklist is in [docs/security/operations.md](docs/security/operations.md#6-hardening-checklist-for-a-new-deployment),
+and the risks it addresses are in [docs/security/known-issues.md](docs/security/known-issues.md). Do not skip these:
+
+- [ ] `AUTH_ENABLED=true` with `AUTH_SCOPE`, `AUTH_ALLOWED_ROLES` and `AUTH_ADMIN_ROLES`; app roles assigned in Entra
+- [ ] `TRUSTED_PROXIES` set to your reverse proxy's exact address. The default trusts every private address, which lets
+      any client that reaches the backend directly from a private network choose its own client IP (KI-04)
+- [ ] `METRICS_ALLOWED_IPS` narrowed to your Prometheus server
+- [ ] The reverse proxy limits request bodies and sets, rather than appends, `X-Forwarded-For`
+- [ ] `secrets/pulsar-ingestion.pem` owned by uid 10001, mode 400, rotated before it expires
+- [ ] `RETENTION_DAYS` and an audit-trail retention period decided; backups off the host
 
 ## Azure Key Vault (optional)
 
@@ -228,6 +228,8 @@ To store secrets in Azure Key Vault instead of `.env`:
 ## Azure-native deployment
 
 PULSAR runs natively on Azure Container Apps with Azure Cache for Redis and either a containerised MongoDB or Cosmos DB for MongoDB as the database. Secrets are managed via Key Vault and a managed identity — no credentials in environment variables.
+
+> **Security differences from the Docker Compose deployment** ([KI-13](docs/security/known-issues.md#ki-13-azure-path-without-the-least-privilege-database-user---medium-open)): the app connects to MongoDB as `root` (or the Cosmos DB admin), so the restricted `pulsar` user and the insert-only audit trail do not apply, and the container hardening in `docker-compose.prod.yml` is not reproduced. This path has been reviewed but not tested end to end against 3.x.
 
 For the full step-by-step guide, including the Cosmos DB migration path and custom domain setup, see **[DEPLOY-AZURE.md](DEPLOY-AZURE.md)**.
 
@@ -254,7 +256,7 @@ The script creates the Container Apps environment, Azure Cache for Redis, Key Va
 
 ### Cosmos DB for MongoDB
 
-Cosmos DB's MongoDB-compatible API works with PULSAR without code changes — only `MONGO_URI` needs updating. Use a vCore cluster (M30+) for production; the connection string requires `retrywrites=false` and `tls=true`:
+Cosmos DB's MongoDB-compatible API works with PULSAR without code changes — only `MONGO_URI` needs updating. The `deploy/mongo-init` user script does not apply to Cosmos DB, so the app runs with the account you put in the URI; use one with the least rights Cosmos DB allows. Use a vCore cluster (M30+) for production; the connection string requires `retrywrites=false` and `tls=true`:
 
 ```
 MONGO_URI=mongodb+srv://admin:PASSWORD@cluster.mongocluster.cosmos.azure.com/pulsar?tls=true&retrywrites=false&maxIdleTimeMS=120000
@@ -265,6 +267,9 @@ PULSAR calls `setup_indexes()` at startup — no manual index setup is needed. S
 See [`DEPLOY-AZURE.md`](DEPLOY-AZURE.md) for the full Azure Container Apps guide, including Cosmos DB setup, migration steps, and custom domain configuration.
 
 ## Rollback
+
+Release tags are immutable, so a previous version is always available. Check the changelog for configuration changes
+between the two versions before rolling back across a major release.
 
 ```bash
 export PULSAR_VERSION=v1.x.x   # previous version
@@ -286,6 +291,6 @@ docker compose -f docker-compose.prod.yml up -d
 ## Troubleshooting
 
 - **Auth warning in logs** — "AUTH_ENABLED is true but no AUTH_ALLOWED_ROLES or AUTH_ALLOWED_GROUPS configured": set these to restrict access.
-- **CORS issues** — set `CORS_ORIGINS` to your exact frontend origin. Wildcard with auth enabled disables credentials.
-- **Rate limiting 429s** — check Redis/Valkey connectivity. The rate limiter fails closed when Redis is unreachable.
+- **CORS issues** — the UI is same-origin and needs no setting. For a browser app on another origin, set `CORS_ORIGINS` to its exact origin. A wildcard with auth enabled disables credentials.
+- **Rate limiting 429s** — check Valkey connectivity: when Valkey is unreachable every rate-limited request gets 429. Behind a proxy, check `TRUSTED_PROXIES`, or all clients share the proxy's budget.
 - **SIEM not forwarding** — verify `SIEM_WEBHOOK_URL` uses HTTPS and the domain is in `SIEM_ALLOWED_DOMAINS`.

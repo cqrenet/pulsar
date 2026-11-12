@@ -4,6 +4,24 @@ All notable changes to PULSAR will be documented here.
 
 ## [Unreleased]
 
+### Security
+
+- Microsoft identity calls (OpenID configuration, JWKS, token endpoint) no longer follow redirects; the JWKS URI must be
+  HTTPS on `login.microsoftonline.com`.
+- Graph pagination refuses `@odata.nextLink` URLs on another host, so the bearer token cannot be sent elsewhere.
+- CSP adds `object-src 'none'`, `base-uri 'self'` and `frame-ancestors 'none'`.
+- Token rejections for policy reasons (tenant, issuer, scope, ID token) and role denials are now logged.
+- `nginx/nginx.conf` serves HTTPS only (HTTP redirects), limits bodies to 1 MiB, replaces client-supplied
+  `X-Forwarded-For`, and drops the obsolete `X-XSS-Protection` header.
+- `scripts/pulsar-live-baseline.py` requires `--base-url` instead of defaulting to a production host.
+
+### Documentation
+
+- New security reviewer guide ([docs/security/README.md](docs/security/README.md)) and a register of known issues with
+  severities ([docs/security/known-issues.md](docs/security/known-issues.md)). The threat model, operations guide,
+  outbound HTTP inventory, README, DEPLOY, DEPLOY-AZURE and AGENTS were corrected against the code.
+- New `backend/seed_demo.py` fills a local sandbox with synthetic events, including hostile display names.
+
 ## [3.1.0] — 2026-11-12
 
 No configuration changes are required. Operators who build their own images or run the app outside Docker need Python 3.14.

@@ -17,7 +17,9 @@ Roles are Entra app roles on the API app. Sign-in requires assignment *and* one 
 | Create/edit/delete alert rules, trigger a manual fetch | no | **yes** | - | no |
 
 Notes: with `AUTH_ADMIN_ROLES` empty every signed-in user is an admin (a startup warning says so). Privacy filtering
-applies to alerts, summaries and filter options too. The MCP API key is one shared identity with no roles.
+applies to alerts, summaries and filter options too. The MCP API key is one shared identity with no roles (KI-03).
+Unauthenticated endpoints: `/health`, `/metrics` (IP allowlist), `/api/version`, `/api/config/auth`,
+`/api/config/features`, `/api/webhooks/graph` (`clientState`), and `/.well-known/oauth-authorization-server`.
 
 ## 2. Data inventory and retention
 
@@ -72,11 +74,11 @@ Container logs are JSON. Forward them to a system outside the host and alert on:
 
 | Log event (substring) | Meaning |
 |---|---|
-| `Token verification failed`, `MCP OIDC auth failed`, `MCP auth failed: invalid API key` | Failed sign-ins or key guessing |
-| HTTP 429 in the access log, `Rate limiter Redis error; failing closed` | Abuse, or Valkey down (API returns 503) |
+| `Token verification failed`, `MCP OIDC auth failed`, `MCP auth failed: invalid API key` | Failed sign-ins (bad signature, expired, wrong tenant/issuer/scope, ID token) or key guessing |
+| `Access denied: no allowed role or group`, `Access denied: admin role required` | Valid users probing beyond their role |
+| HTTP 429 in the access log, `Rate limiter Redis error; failing closed` | Abuse, or Valkey down (the API then answers 429 to everyone) |
 | `Graph webhook rejected: invalid clientState` | Spoofed notifications |
 | `Failed to write audit trail` | Audit gap - treat as an incident |
-| `"audit"` records with `status_code` 403 | Role probing |
 | `SIEM forward failed`, `Notification failed after retries` | Alert delivery broken |
 | `/api/source-health` status `error` | An ingestion source is failing (permission, certificate expiry) |
 
@@ -85,11 +87,16 @@ Review the `pulsar_audit` collection for `delete_rule`, `update_rule`, `bulk_tag
 ## 6. Hardening checklist for a new deployment
 
 - [ ] `AUTH_ENABLED=true`, `AUTH_ALLOWED_ROLES` and `AUTH_ADMIN_ROLES` set; `ALLOW_UNAUTHENTICATED` unset
-- [ ] `CORS_ORIGINS` is the exact public origin; reverse proxy terminates TLS, forwards `X-Forwarded-For`, and its
-      address is in `TRUSTED_PROXIES`
+- [ ] Reverse proxy terminates TLS, sets (not appends) `X-Forwarded-For`, and limits request bodies (1 MiB is enough)
+- [ ] `TRUSTED_PROXIES` is the proxy's exact address, not the default private ranges (known issue KI-04)
+- [ ] `METRICS_ALLOWED_IPS` is your Prometheus server only (KI-05)
+- [ ] `CORS_ORIGINS` left empty unless a browser app on another origin needs the API
 - [ ] `MCP_ALLOWED_HOSTS` set; `MCP_API_KEY` only if non-interactive clients need it
 - [ ] `WEBHOOK_CLIENT_SECRET` set if Graph subscriptions are used
 - [ ] `.env`, `.env.db` and the certificate are mode `600`; MongoDB and Valkey are not published to the host
 - [ ] Egress from the host limited to Microsoft endpoints and the configured webhooks
 - [ ] `RETENTION_DAYS` and an audit-trail retention policy decided; backups off-host and restore tested
 - [ ] Image pinned by version or digest (not `latest`); updates tracked via Dependabot and the release notes
+- [ ] Container logs (including the `audit` records) shipped off the host; alerts set up per section 5
+- [ ] Azure deployments: a restricted MongoDB user created instead of `root`/admin (KI-13)
+- [ ] Read [known-issues.md](known-issues.md) and decide which accepted risks are acceptable for this client
